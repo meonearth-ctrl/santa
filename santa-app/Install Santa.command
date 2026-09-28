@@ -97,6 +97,7 @@ PLIST
 cat > "$ASSIST/Contents/MacOS/SantaAssistant" <<'LAUNCH'
 #!/bin/bash
 SUPPORT="$HOME/Library/Application Support/Santa"
+export PYTHONUNBUFFERED=1
 exec "$SUPPORT/venv/bin/santa-dictation" >> "$SUPPORT/logs/assistant.log" 2>&1 < /dev/null
 LAUNCH
 chmod +x "$ASSIST/Contents/MacOS/SantaAssistant"
