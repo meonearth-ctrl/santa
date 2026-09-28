@@ -257,6 +257,59 @@ class _PillTarget(NSObject):
         if self.pill is not None:
             self.pill.panel.orderOut_(None)
 
+    def restartAssistant_(self, sender):
+        quit_assistant(restart=True)
+
+    def quitAssistant_(self, sender):
+        quit_assistant(restart=False)
+
+    def toggleLogin_(self, sender):
+        set_start_at_login(not start_at_login_enabled())
+
+
+# ── App lifecycle helpers (menu actions; no Terminal needed) ────────────────
+import os
+import signal
+import subprocess
+
+ASSISTANT_APP = os.path.expanduser('~/Applications/Santa Assistant.app')
+LOGIN_AGENT = os.path.expanduser('~/Library/LaunchAgents/local.santa.assistant.plist')
+
+
+def quit_assistant(restart: bool = False) -> None:
+    """Quit cleanly (and optionally reopen). Whisper Local exits on SIGTERM; a
+    short timer makes sure the process really ends even if a worker hangs."""
+    if restart and os.path.isdir(ASSISTANT_APP):
+        subprocess.Popen(['/bin/sh', '-c', f'sleep 2; /usr/bin/open "{ASSISTANT_APP}"'],
+                         start_new_session=True)
+    threading.Timer(3.0, lambda: os._exit(0)).start()
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+def start_at_login_enabled() -> bool:
+    return os.path.exists(LOGIN_AGENT)
+
+
+def set_start_at_login(enabled: bool) -> None:
+    """A per-user LaunchAgent that opens Santa Assistant when you log in."""
+    if not enabled:
+        try:
+            os.remove(LOGIN_AGENT)
+        except FileNotFoundError:
+            pass
+        return
+    os.makedirs(os.path.dirname(LOGIN_AGENT), exist_ok=True)
+    with open(LOGIN_AGENT, 'w') as fh:
+        fh.write('<?xml version="1.0" encoding="UTF-8"?>\n'
+                 '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+                 '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+                 '<plist version="1.0"><dict>\n'
+                 '  <key>Label</key><string>local.santa.assistant</string>\n'
+                 f'  <key>ProgramArguments</key><array><string>/usr/bin/open</string>'
+                 f'<string>{ASSISTANT_APP}</string></array>\n'
+                 '  <key>RunAtLoad</key><true/>\n'
+                 '</dict></plist>\n')
+
 
 # ── Glass background ────────────────────────────────────────────────────────
 def _make_glass(frame, content):
@@ -367,7 +420,11 @@ class SantaPill:
             checked=(self.hinglish_output == 'roman'))
         menu.addItem_(NSMenuItem.separatorItem())
         add('Open Santa window', 'openSanta:')
+        menu.addItem_(NSMenuItem.separatorItem())
+        add('Start at login', 'toggleLogin:', checked=start_at_login_enabled())
+        add('Restart Santa Assistant', 'restartAssistant:')
         add('Hide until restart', 'hidePill:')
+        add('Quit Santa Assistant', 'quitAssistant:')
 
     # ── Whisper Local overlay interface (any thread) ─────────────────────
     def show_recording(self):

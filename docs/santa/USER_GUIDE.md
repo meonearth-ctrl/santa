@@ -29,7 +29,9 @@ Both use the same engine and the **same language setting**.
 * While recording the mic becomes a red dot and the tag becomes level bars; then
   three dots while transcribing; then a brief green ✓ (pasted) or amber ! (nothing
   recognised). Hover the capsule to read the last result or the reason.
-* Right-click: language, Hinglish output (mixed / romanized), Open Santa window, Hide.
+* Right-click: language, Hinglish output (mixed / romanized), Open Santa window,
+  **Start at login**, **Restart Santa Assistant**, Hide, **Quit Santa Assistant**.
+  To start it again later: Spotlight (⌘ Space) → "Santa Assistant".
 * First use: macOS asks for **Microphone** and **Accessibility** (to paste). For
   the Fn+Ctrl hotkey also allow **Input Monitoring**. If Accessibility is off,
   the capsule shows an amber **!**, the text is left on the clipboard (press ⌘V),
