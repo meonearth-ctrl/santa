@@ -1,7 +1,9 @@
 # Santa — Phase 2 plan: using Santa from your phone
 
-Status: **design only**. Nothing in this document is built or switched on yet.
-Santa today listens only on `127.0.0.1` and the CLI refuses any other address.
+Status (2026-09-28): **option 1 below is built** — see "What was built" at the
+end and USER_GUIDE.md section 9. It is off until switched on in Settings ›
+iPhone access. Options 2 and 3 are still future work. The design below is kept
+as written; where the build differs, the last section says so.
 
 ## 1. What Phase 2 is (and isn't)
 
@@ -108,3 +110,22 @@ interface and still requiring pairing. No public URL, no port forwarding.
   when not needed.
 * Battery/network: a 1-minute WAV at 16 kHz is ~2 MB; fine on Wi-Fi.
 * The Mac going to sleep ends availability; `caffeinate` while Santa runs is an option.
+
+
+## 6. What was built (2026-09-28)
+
+| Plan item | Built as |
+|---|---|
+| Separate phone listener | `phone_access.py`: second `SantaServer` on port 8766, TLS, shares the one TranscriptionService. Bound to 0.0.0.0 so a new Wi-Fi address keeps working, but every connection from outside 10/8, 172.16/12, 192.168/16, 100.64/10 is refused, and the Host header must be the Mac's `.local` name or LAN IP. |
+| Local CA | `phone.py`: ECDSA P-256 CA with **critical name constraints** (only `*.local` + private/CGNAT IPs), 397-day leaf re-issued automatically when the address changes. Tested: a leaf for `example.com` signed by this CA is rejected by OpenSSL. |
+| Getting the CA onto the phone | `.mobileconfig` profile served over plain HTTP on port 8767 for 10 minutes only when *Show download QR code* is pressed (it holds only the public certificate), or saved to Downloads for AirDrop. SHA-256 fingerprint shown on the Mac. |
+| Pairing | 6-digit code (5 min, single use, locked after 5 wrong tries, 10 attempts/min/IP) or the QR link token in the URL fragment. Device token 256-bit, stored hashed; HttpOnly + Secure + SameSite=Strict cookie. Home Screen apps pair separately (iOS keeps their cookies apart). |
+| iOS Shortcut | Bearer "Shortcut key" + `POST /api/transcribe?wait=120&format=text` returns the text in one request. |
+| Phone restrictions | No file paths, folders, exports, model changes, quitting or pairing from the phone; settings limited to language/output/words/speakers. |
+| Awake | `caffeinate -i -w <pid>` while phone access is on. |
+| Not built | Upload retry/idempotency, service worker, outside-home access (use Tailscale later: its 100.64/10 addresses are already allowed by the CA and listener). |
+
+Measured on the Mac (M5, 2026-09-28, synthetic `say` voice): TLS page load
+200; API before pairing 401; pairing 200; a 4.5 s phone clip transcribed in
+1.5 s over HTTPS; the Shortcut request answered in 2.0 s; a client without the
+CA failed with `SSLCertVerificationError`. Not yet tried on the real iPhone.

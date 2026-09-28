@@ -71,8 +71,8 @@ def main(argv=None) -> int:
         print(f'{APP_NAME} {__version__}')
         return 0
     if not _is_loopback(args.host):
-        print('Santa Phase 1 only listens on this computer (127.0.0.1). Phone access needs the '
-              'Phase 2 secure mode (HTTPS + pairing); see docs/santa/PHASE2.md.')
+        print('The Santa window only listens on this computer (127.0.0.1). For your phone, '
+              'switch on Settings › iPhone access (HTTPS + pairing) instead.')
         return 2
 
     url = f'http://{"127.0.0.1" if args.host != "localhost" else "localhost"}:{args.port}/'
@@ -103,6 +103,11 @@ def main(argv=None) -> int:
     from .watch import WatchFolder
     service.watcher = WatchFolder(service)      # idle unless enabled in Settings
     service.watcher.start()
+    from .phone_access import PhoneAccess
+    service.phone = PhoneAccess(service, home)  # iPhone access: off unless enabled in Settings
+    service.phone.apply_settings(settings.get())
+    if service.phone.running:
+        print(f'    iPhone access is on: {service.phone.url()}')
     print(f'\n🎅  {APP_NAME} is running at {url}\n    Close this window or use "Quit Santa" in the app to stop.\n')
     if not args.no_browser:
         webbrowser.open(url)
@@ -111,9 +116,15 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        service.phone.stop()
         httpd.server_close()
     print(f'{APP_NAME} stopped.')
-    return 0
+    # Exit without running native destructors: onnxruntime/ctranslate2 worker
+    # threads can abort ("recursive_mutex lock failed") while Python tears down,
+    # which macOS would report as a crash. Everything is already saved.
+    logging.shutdown()
+    sys.stdout.flush()
+    os._exit(0)
 
 
 if __name__ == '__main__':

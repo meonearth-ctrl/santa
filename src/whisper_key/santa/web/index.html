@@ -2,9 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Santa</title>
 <link rel="icon" href="/static/santa.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Santa">
+<meta name="theme-color" content="#c62828">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -14,15 +20,28 @@
   <nav class="topnav">
     <button id="historyBtn" class="ghost" hidden>History</button>
     <button id="settingsBtn" class="ghost">Settings</button>
-    <button id="quitBtn" class="ghost danger-text" title="Stop the Santa server">Quit Santa</button>
+    <button id="quitBtn" class="ghost danger-text mac-only" title="Stop the Santa server">Quit Santa</button>
   </nav>
 </header>
 
-<main class="layout">
+<!-- Shown on a phone that isn't paired yet -->
+<main class="layout" id="pairPanel" hidden>
+  <section class="panel pair">
+    <h2>Pair this phone with Santa</h2>
+    <p>On your Mac, open the Santa window › <b>Settings</b> › <b>iPhone access</b> › <b>Set up iPhone…</b> and press <b>Show pairing code</b>. Then type the 6-digit code here.</p>
+    <label class="field"><span>Pairing code</span>
+      <input id="pairCode" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]*" placeholder="123456"></label>
+    <button id="pairBtn" class="record">Pair</button>
+    <p id="pairMsg" class="hint" role="status"></p>
+    <p class="hint">Speech is sent over your home Wi-Fi, encrypted, to your Mac, and recognised there. Nothing goes to the internet.</p>
+  </section>
+</main>
+
+<main class="layout" id="mainPanel">
   <section class="panel recorder" aria-label="Recorder">
     <div class="controls-row">
       <label class="field">
-        <span>Language</span>
+        <span>Language spoken</span>
         <select id="languageSel"></select>
       </label>
       <label class="field" id="hinglishOutField" hidden>
@@ -32,7 +51,11 @@
           <option value="roman">Romanized (Latin letters)</option>
         </select>
       </label>
-      <label class="field grow">
+      <label class="field">
+        <span>Output</span>
+        <select id="outputSel" title="English or Arabic adds an offline translation; the original is kept under Last result details"></select>
+      </label>
+      <label class="field grow mac-only">
         <span>Microphone</span>
         <select id="micSel"><option value="">System default microphone</option></select>
       </label>
@@ -52,8 +75,6 @@
         <div class="progress" id="progressWrap" hidden><div id="progressFill"></div></div>
         <div class="row-actions">
           <button id="cancelBtn" class="secondary" hidden>Cancel</button>
-          <button id="uploadBtn" class="secondary" title="Transcribe an audio file (⌥U)">Transcribe a file…</button>
-          <input id="fileInput" type="file" accept="audio/*,.m4a,.mp3,.wav,.ogg,.opus,.webm,.flac,.caf,.aac,.aiff" hidden>
         </div>
       </div>
     </div>
@@ -66,7 +87,9 @@
       <h2>Transcript</h2>
       <div class="toolbar">
         <button id="copyBtn" class="secondary" title="Copy all (⌥C)">Copy</button>
-        <button id="exportBtn" class="secondary" title="Save as UTF-8 .txt (⌥E)">Export .txt</button>
+        <button id="shareBtn" class="secondary" hidden title="Send to another app">Share…</button>
+        <button id="speakBtn" class="secondary" title="Read the transcript (or the selected part) aloud (⌥R)">Read aloud</button>
+        <button id="exportBtn" class="secondary mac-only" title="Save as UTF-8 .txt (⌥E)">Export .txt</button>
         <button id="clearBtn" class="secondary">Clear</button>
       </div>
     </div>
@@ -74,7 +97,18 @@
       placeholder="Your words appear here. You can edit freely — new dictation is inserted at the cursor."></textarea>
     <details id="lastResult" class="last-result" hidden>
       <summary>Last result details</summary>
+      <p id="translationNote" class="note" hidden></p>
       <dl id="resultMeta"></dl>
+      <div class="raw-block" id="speakersBlock" hidden>
+        <h3>Speakers</h3>
+        <ul id="speakersList" class="speakers-list"></ul>
+        <p class="hint">Naming a voice teaches Santa to recognise that person in future recordings. Voiceprints stay on your Mac; ask people before you save theirs.</p>
+      </div>
+      <div class="raw-block" id="originalBlock" hidden>
+        <h3>Original (as spoken, before translation)</h3>
+        <div id="originalText" class="rawtext" dir="auto"></div>
+        <button id="insertOriginalBtn" class="secondary small">Insert original</button>
+      </div>
       <div class="raw-block">
         <h3>Raw transcript (unchanged Whisper output)</h3>
         <div id="rawText" class="rawtext" dir="auto"></div>
@@ -88,21 +122,68 @@
     </details>
   </section>
 
+  <section class="panel files" id="filesPanel" aria-label="Files and links">
+    <div class="transcript-head">
+      <h2>Files &amp; links</h2>
+      <label class="check inline"><input type="checkbox" id="diarizeChk"> Separate speakers
+        <select id="speakersSel" aria-label="Number of speakers">
+          <option value="0">auto</option><option value="2">2</option><option value="3">3</option>
+          <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+        </select></label>
+    </div>
+    <div id="dropZone" class="drop-zone" tabindex="0">
+      <p><b>Drop audio or video files here</b><span class="mac-only"> (several at once is fine)</span></p>
+      <button id="uploadBtn" class="secondary" title="Choose files (⌥U)">Choose files…</button>
+      <input id="fileInput" type="file" multiple accept="audio/*,video/*,.m4a,.mp3,.wav,.ogg,.opus,.webm,.flac,.caf,.aac,.aiff,.mp4,.mov,.m4v,.mkv" hidden>
+    </div>
+    <form id="sourceForm" class="source-row">
+      <input id="sourceInput" type="text" autocomplete="off" spellcheck="false"
+        placeholder="…or paste a file path or a link (YouTube, Loom, Drive, direct .mp4)">
+      <button type="submit" class="secondary">Transcribe</button>
+    </form>
+    <p class="hint">Files are read where they are and never moved or deleted. Links are downloaded to a temporary file that is deleted right after. Transcripts are added to the box above<span class="mac-only"> and, if switched on in Settings, saved as .json + .srt</span>.</p>
+    <ul id="fileJobs" class="file-jobs"></ul>
+  </section>
+
   <section class="panel history" id="historyPanel" hidden aria-label="History">
     <div class="transcript-head">
-      <h2>History <small>(stored on this computer only)</small></h2>
+      <h2>History <small>(stored on your Mac only)</small></h2>
       <div class="toolbar"><button id="clearHistoryBtn" class="secondary danger-text">Delete all</button></div>
     </div>
     <ul id="historyList" class="history-list"></ul>
   </section>
 
-  <p class="shortcuts">Shortcuts: <kbd>⌥ S</kbd> start/stop · <kbd>Esc</kbd> cancel · <kbd>⌥ C</kbd> copy · <kbd>⌥ E</kbd> export · <kbd>⌥ U</kbd> upload file</p>
+  <p class="shortcuts mac-only">Shortcuts: <kbd>⌥ S</kbd> start/stop · <kbd>Esc</kbd> cancel · <kbd>⌥ C</kbd> copy · <kbd>⌥ R</kbd> read aloud · <kbd>⌥ E</kbd> export · <kbd>⌥ U</kbd> add files</p>
 </main>
 
 <dialog id="settingsDlg" aria-label="Settings">
   <form method="dialog" id="settingsForm">
     <h2>Settings</h2>
+    <fieldset id="vocabSet">
+      <legend>Words Santa should know</legend>
+      <label class="field"><span>Names, places and special words, separated by commas</span>
+        <input type="text" id="promptInput" maxlength="400" placeholder="e.g. Kout Food Group, Salmiya, ATOSS, guessing"></label>
+      <p class="hint">A hint for the speech model — it makes these spellings more likely (not guaranteed). Used for the Santa window, the iPhone and the floating assistant.</p>
+    </fieldset>
     <fieldset>
+      <legend>Speakers (interviews)</legend>
+      <label class="check"><input type="checkbox" id="diarizeDefaultChk"> Separate speakers in files by default (also for the watch folder)</label>
+      <p class="hint">Never used for dictation. First use downloads ~35 MB of speaker models, once.</p>
+      <h3 class="sub">Known voices</h3>
+      <ul id="voicesList" class="speakers-list"></ul>
+      <div class="enroll-row">
+        <input type="text" id="voiceName" maxlength="40" placeholder="Name, e.g. Shouvik">
+        <button type="button" id="voiceRecBtn" class="secondary">Record 20 s sample</button>
+      </div>
+      <p class="hint" id="voiceMsg">Record someone reading anything for ~20 seconds, or name a speaker from a transcript. Voiceprints are stored only on your Mac and can be deleted here. Ask people before saving theirs.</p>
+    </fieldset>
+    <fieldset class="mac-only" id="phoneSet">
+      <legend>iPhone access</legend>
+      <label class="check"><input type="checkbox" id="phoneChk"> Let my paired iPhone use Santa over the home Wi-Fi (encrypted; keeps the Mac awake while on)</label>
+      <p class="hint" id="phoneStatus"></p>
+      <button type="button" id="phoneSetupBtn" class="secondary">Set up iPhone…</button>
+    </fieldset>
+    <fieldset class="mac-only">
       <legend>Speech model</legend>
       <label class="field"><span>Model</span><select id="modelSel"></select></label>
       <p id="modelNote" class="hint"></p>
@@ -114,41 +195,110 @@
       <p class="hint">The GPU fast path uses whisper.cpp with Large-v3 Turbo (extra ~550 MB download, once). If its output looks damaged, Santa silently redoes the clip on the CPU.</p>
       <button type="button" id="loadModelBtn" class="secondary">Load / download this model</button>
     </fieldset>
-    <fieldset>
+    <fieldset class="mac-only">
       <legend>Hinglish</legend>
       <label class="field"><span>Recognition strategy</span><select id="strategySel"></select></label>
       <p class="hint">How Whisper is steered for mixed Hindi–English speech. Default chosen from measurements; see the guide.</p>
     </fieldset>
-    <fieldset>
+    <fieldset class="mac-only">
       <legend>Output</legend>
       <label class="check"><input type="checkbox" id="cleanupChk"> Light cleanup (spacing; capitalisation for English only). The raw text is always kept.</label>
       <label class="check"><input type="checkbox" id="vadChk"> Skip silence (reduces made-up text on quiet audio)</label>
-      <label class="field"><span>Names &amp; vocabulary hint (optional)</span>
-        <input type="text" id="promptInput" maxlength="400" placeholder="e.g. Kout Food Group, Salmiya, ATOSS"></label>
       <label class="field"><span>Accuracy vs speed (beam size)</span>
         <select id="beamSel"><option value="1">1 – fastest</option><option value="3">3</option><option value="5">5 – default</option><option value="8">8 – slowest</option></select></label>
     </fieldset>
-    <fieldset>
+    <fieldset class="mac-only">
       <legend>Privacy</legend>
       <label class="check"><input type="checkbox" id="historyChk"> Keep a transcript history on this computer (off by default; audio is never kept)</label>
       <label class="field"><span>Max upload size (MB)</span><input type="number" id="maxUploadInput" min="1" max="2000"></label>
       <label class="field"><span>Max audio length (minutes)</span><input type="number" id="maxDurInput" min="1" max="240"></label>
     </fieldset>
-    <fieldset>
+    <fieldset class="mac-only">
       <legend>Transcript files &amp; watch folder</legend>
-      <label class="check"><input type="checkbox" id="exportChk"> Save every uploaded or watched file's transcript as <b>.json</b> + <b>.srt</b> (with timestamps)</label>
+      <label class="check"><input type="checkbox" id="exportChk"> Save every file's transcript as <b>.json</b> + <b>.srt</b> (with timestamps, and speakers when separated)</label>
       <label class="field"><span>Save transcripts to</span>
         <input type="text" id="exportDirInput" placeholder="~/Documents/Hiring Right/03_Transcripts"></label>
       <label class="check"><input type="checkbox" id="watchChk"> Automatically transcribe new audio/video files dropped in a folder</label>
       <label class="field"><span>Watch folder</span>
         <input type="text" id="watchDirInput" placeholder="~/Documents/Hiring Right/02_Batch_Videos"></label>
       <label class="field"><span>Language for watched files</span><select id="watchLangSel"></select></label>
-      <p class="hint">Watched files are never moved or deleted. A file is skipped when an up-to-date .json transcript already exists. Failures are written as &lt;name&gt;.error.txt.</p>
+      <p class="hint">Watched files are never moved or deleted. A file is skipped when an up-to-date .json transcript already exists. Failures are written as &lt;name&gt;.error.txt. Watched files are never translated.</p>
     </fieldset>
     <div class="dlg-actions">
       <button type="button" id="saveSettingsBtn">Save</button>
       <button type="submit" class="secondary">Close</button>
     </div>
+  </form>
+</dialog>
+
+<dialog id="phoneDlg" aria-label="Set up iPhone">
+  <form method="dialog">
+    <h2>Set up your iPhone</h2>
+    <p class="hint">Your iPhone and this Mac must be on the same Wi-Fi. Speech is sent encrypted to this Mac and recognised here — nothing goes to the internet, and nothing is reachable from outside your home network.</p>
+
+    <fieldset>
+      <legend>1 · Trust this Mac (once)</legend>
+      <p>The iPhone only allows the microphone on secure pages, so it needs this Mac's own certificate. It can only vouch for this Mac on your home network, never for real websites.</p>
+      <div class="two-ways">
+        <div>
+          <button type="button" id="setupQrBtn" class="secondary">Show download QR code</button>
+          <div id="setupQr" class="qr" hidden></div>
+          <p class="hint" id="setupUrl"></p>
+        </div>
+        <div>
+          <button type="button" id="airdropBtn" class="secondary">Or AirDrop the certificate…</button>
+          <p class="hint">Finder opens with the file selected: right-click › Share › AirDrop › your iPhone.</p>
+        </div>
+      </div>
+      <ol class="steps">
+        <li>On the iPhone, allow the download, then open <b>Settings</b> › <b>Profile Downloaded</b> › <b>Install</b>.</li>
+        <li><b>Settings</b> › <b>General</b> › <b>About</b> › <b>Certificate Trust Settings</b> › switch on <b>Santa local CA</b>.</li>
+      </ol>
+      <p class="hint">Certificate fingerprint (SHA-256): <code id="caFingerprint">—</code></p>
+    </fieldset>
+
+    <fieldset>
+      <legend>2 · Pair</legend>
+      <button type="button" id="pairingBtn" class="secondary">Show pairing code</button>
+      <div id="pairingBox" hidden>
+        <div class="pairing">
+          <div id="pairingQr" class="qr"></div>
+          <div>
+            <p>Scan with the iPhone camera — or open <b id="phoneUrl"></b> in Safari and type:</p>
+            <p class="code" id="pairingCode">——————</p>
+            <p class="hint" id="pairingExpiry"></p>
+          </div>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>3 · Put Santa on the Home Screen</legend>
+      <p>In Safari tap <b>Share</b> › <b>Add to Home Screen</b>. The Home Screen app keeps its own sign-in, so the first time you open it, press <b>Show pairing code</b> again and type the new code.</p>
+      <p>On the phone, <b>Share…</b> sends the text to any app (WhatsApp, Mail, Notes…), and <b>Copy</b> puts it on the clipboard.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>4 · Optional: dictate from anywhere with a Shortcut</legend>
+      <p>An iOS Shortcut can record, send the audio to Santa and put the text on your clipboard — start it with <b>Back Tap</b> (Settings › Accessibility › Touch › Back Tap) or Siri.</p>
+      <button type="button" id="shortcutBtn" class="secondary">Create a Shortcut key</button>
+      <div id="shortcutBox" hidden>
+        <p class="hint">Shown only once. Keep it private — anyone with it can use Santa on your Wi-Fi. Remove it below to switch it off.</p>
+        <p><code id="shortcutToken" class="token"></code></p>
+        <ol class="steps">
+          <li>Shortcuts app › <b>+</b> › add <b>Record Audio</b> (Audio Quality: Normal, Start Recording: Immediately).</li>
+          <li>Add <b>Get Contents of URL</b>: URL <code id="shortcutUrl"></code>, Method <b>POST</b>, Headers: <code>Authorization</code> = <code>Bearer &lt;the key above&gt;</code>, Request Body <b>File</b> = <i>Recorded Audio</i>.</li>
+          <li>Add <b>Copy to Clipboard</b> (Contents of URL), then optionally <b>Show Notification</b>.</li>
+          <li>Name it <i>Santa</i>. Settings › Accessibility › Touch › Back Tap › Double Tap › <i>Santa</i>.</li>
+        </ol>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Paired devices</legend>
+      <ul id="deviceList" class="speakers-list"></ul>
+    </fieldset>
+    <div class="dlg-actions"><button type="submit">Done</button></div>
   </form>
 </dialog>
 

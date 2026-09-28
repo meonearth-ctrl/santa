@@ -76,6 +76,24 @@ pyproject.toml               `santa`, `santa-dictation` scripts; `santa-gpu` ext
 * Settings, history, logs, venv live outside the repo; `santa-app/.gitignore`
   excludes recordings and eval outputs.
 
+## Added 2026-09-28: iPhone, output language, speakers, paths/links
+
+| Module | What it does |
+|---|---|
+| `phone.py` | Name-constrained local CA + 397-day leaf, `.mobileconfig`, paired-device store (token hashes only), rate limiter, QR SVG, cookie/Bearer parsing |
+| `phone_access.py` | Second `SantaServer` (TLS, port 8766, private-network clients only), address watcher that re-issues the leaf, `caffeinate -i`, 10-minute plain-HTTP profile download on 8767 |
+| `server.py` | One handler, two modes. Phone mode: device token on every API call, Origin/Host allow-list, no paths/folders/models/quit/pairing, limited settings keys; `?wait=&format=text` one-request mode for Shortcuts |
+| `translate.py` | Argos Translate packages run with ctranslate2 + SentencePiece (no torch). hi/bn/ar → en, en → ar, hi/bn → ar via en. Downloaded once per pair into `models/translate/` |
+| `speakers.py` | sherpa-onnx diarization (pyannote seg-3.0 + 3D-Speaker CAM++ zh_en, cluster threshold 0.7), segment ↔ turn assignment, labels, dialogue text, `VoiceBook` voiceprints (`voices.json`, cosine ≥ 0.55) |
+| `links.py` | Pasted path validation, link download (direct media via urllib, pages via yt-dlp audio-only), SSRF guard on every hop |
+| `service.py` | `submit_source()`, per-job options (`output_language`, `diarize`, `num_speakers`), `downloading` / `speakers` / `translating` states, speakers only for files, watch folder never translated, `enroll_voice` / `enroll_from_job` |
+| `export.py` | `speaker` per segment, `speakers` summary, `translation` block; SRT lines `[Speaker N] …` |
+| `web/` | Pairing screen, Output select, Read aloud (Web Speech API, local voices only), Share, Files & links queue, Known voices, Set up iPhone dialog, PWA manifest + icons, 375 px layout |
+
+Extra dependencies: `pip install -e .[santa-extras]` (sherpa-onnx, sentencepiece,
+cryptography, segno, yt-dlp). Check everything on the Mac against the running
+server with `python santa-app/dev/extras_check.py [translation|speakers|phone]`.
+
 ## Hardware findings (Apple M5, 16 GB, macOS 26.6)
 * CTranslate2 has no Metal backend → faster-whisper runs on CPU (int8).
   CT2's default uses 4 threads; 8 measured ~20 % faster → Santa uses cores−2 (max 8).

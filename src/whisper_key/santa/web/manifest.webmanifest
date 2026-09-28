@@ -1,0 +1,14 @@
+{
+  "name": "Santa",
+  "short_name": "Santa",
+  "description": "Private dictation — speech is recognised on your own Mac.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f4f1",
+  "theme_color": "#c62828",
+  "icons": [
+    {"src": "/static/icon-180.png", "sizes": "180x180", "type": "image/png"},
+    {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"}
+  ]
+}

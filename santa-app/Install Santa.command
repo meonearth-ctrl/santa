@@ -33,7 +33,8 @@ fi
 
 # 3) Install the repo (editable) + test runner
 # [santa-gpu] adds whisper.cpp (Metal) for fast short clips on Apple Silicon.
-uv pip install --python "$VENV/bin/python" -e "$REPO[santa-gpu]" pytest
+# [santa-extras] adds speaker separation, translation, iPhone access and links.
+uv pip install --python "$VENV/bin/python" -e "$REPO[santa-gpu,santa-extras]" pytest
 "$VENV/bin/python" -c "import faster_whisper, ctranslate2; print('faster-whisper', faster_whisper.__version__, '/ ctranslate2', ctranslate2.__version__)"
 
 # 4) ~/Applications/Santa.app — double-clickable, no Terminal window

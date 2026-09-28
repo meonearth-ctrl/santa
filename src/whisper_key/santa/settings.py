@@ -38,6 +38,15 @@ DEFAULTS = {
     'watch_enabled': False,
     'watch_dir': '',               # e.g. ~/Documents/Hiring Right/02_Batch_Videos
     'watch_language': 'en',
+    # Output language: 'same' keeps what was spoken. 'en'/'ar' add an explicit,
+    # labelled offline translation (the original is always kept alongside).
+    'output_language': 'same',
+    # Speaker separation for files (interviews). Never applied to dictation.
+    'diarize_files': False,
+    'num_speakers': 0,             # 0 = work it out automatically
+    # iPhone access over the home Wi-Fi (HTTPS + pairing). Off unless switched on.
+    'phone_enabled': False,
+    'phone_port': 8766,
 }
 
 _CHOICES = {
@@ -47,10 +56,12 @@ _CHOICES = {
     'compute_type': {'int8', 'int8_float32', 'float32'},
     'engine': {'auto', 'cpu'},
     'watch_language': set(LANGUAGE_MODES),
+    'output_language': {'same', 'en', 'ar'},
 }
 _RANGES = {
     'cpu_threads': (0, 64), 'beam_size': (1, 10),
     'max_upload_mb': (1, 2000), 'max_duration_min': (1, 240),
+    'num_speakers': (0, 10), 'phone_port': (1024, 65535),
 }
 
 

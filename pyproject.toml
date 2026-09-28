@@ -73,6 +73,12 @@ whispercpp = ["pywhispercpp>=1.2"]
 # Version pinned to the one Santa was measured with (see docs/santa/EVALUATION.md).
 santa-gpu = ["pywhispercpp>=1.5.1,<1.6; sys_platform=='darwin' and platform_machine=='arm64'"]
 
+# Santa extras (all offline once their models are downloaded):
+#   speaker separation + known voices (sherpa-onnx), English/Arabic translation
+#   (sentencepiece + the ctranslate2 already used by faster-whisper), iPhone access
+#   certificates + pairing QR codes (cryptography, segno), links (yt-dlp).
+santa-extras = ["sherpa-onnx>=1.12", "sentencepiece>=0.2", "cryptography>=42", "segno>=1.6", "yt-dlp"]
+
 # Spectral noise suppression via noisereduce (set `audio.noise_suppression.enabled: true`)
 noise = ["noisereduce>=3.0.0"]
 

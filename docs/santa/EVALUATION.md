@@ -150,3 +150,42 @@ need your macOS permissions and are **awaiting your check**.
 * Very long continuous speech without any pause > 0.3 s is cut at 27 s.
 * Browser dictation requires the Santa page to stay open; hotkey dictation
   requires its Terminal window to stay open.
+
+
+## 7. New features (measured 2026-09-28 on the Mac, M5)
+
+All audio below is **synthetic** (macOS `say` voices), not real speech.
+
+**Translation** (Argos Translate models, offline, CPU; times after the one-time download):
+
+| Pair | Input | Output | Time |
+|---|---|---|---|
+| hi → en | मैं कल सुबह दफ़्तर जाऊँगा और बजट के बारे में मीटिंग करूँगा। | "I would like to meet the budget in the morning." — **wrong meaning** | 0.4 s |
+| bn → en | আমি আগামীকাল অফিসে যাব এবং বাজেট নিয়ে আলোচনা করব। | "I'll go to the office tomorrow and discuss the budget." | 0.2 s |
+| ar → en | سأذهب إلى المكتب غدًا صباحًا لمناقشة الميزانية. | "I'm going to the office tomorrow morning to discuss the budget." | 0.2 s |
+| en → ar | The interview is scheduled for tomorrow at ten in the morning. | موعد المقابلة غداً في العاشرة صباحاً | 0.2 s |
+| hi → ar (via en) | उम्मीदवार के पास पाँच साल का अनुभव है। | وللمرشح خبرة خمس سنوات. | 0.1 s |
+
+The Hindi → English model is weak (1 of 2 Hindi sentences lost its meaning); the
+UI labels every translation and keeps the original. A stronger free model with a
+licence that allows business use was not found yet (NLLB is non-commercial).
+
+**Speaker separation** (sherpa-onnx: pyannote segmentation 3.0 + 3D-Speaker CAM++):
+* 34 s synthetic interview, 2 voices (Samantha/Daniel), 6 turns, through the full
+  pipeline: **all 6 turns labelled correctly**; 16.8 s total including the one-time
+  35 MB model download.
+* After naming Speaker 1 "Test Interviewer", a second synthetic conversation
+  labelled that voice by name automatically and left the other as "Speaker 2".
+* Same file with Arabic output: speaker labels kept, each turn translated.
+* In the Linux container: pyannote's real 2-speaker English sample 99.3 % frame
+  agreement, sherpa's real 4-speaker Chinese sample 4 of 4 found; RTF ≈ 0.18 on
+  2 cores. A 30-minute tiled file found 4 speakers instead of 2 at an older
+  threshold (0.65); 0.7 is now used. **Not yet tested on a real interview**,
+  or on Hindi/Arabic/Bengali conversations.
+
+**iPhone access** (from the Mac to itself over its LAN address, trusting only
+Santa's CA as the iPhone will): page over TLS 200; API before pairing 401;
+pairing 200; phone-mode transcription of a 4.5 s clip in 1.5 s; the phone was
+refused when it tried to quit Santa (403); Shortcut request answered with the
+text in 2.0 s; a client that does not trust the CA failed the TLS handshake.
+**Not yet tried on the real iPhone.**

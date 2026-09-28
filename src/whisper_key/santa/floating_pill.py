@@ -4,12 +4,13 @@
 # Designed to stay out of the way: no words, dimmed until you hover or dictate.
 #   * mic glyph        click -> start; click again -> stop, text is pasted into the
 #                      app/field you were typing in (Fn+Ctrl hold also works)
-#   * tiny tag         input language › output script, e.g. "HI › अ", "HG › Aa";
-#                      click to cycle the input language
+#   * tiny tag         input language › output, e.g. "HI › अ", "HG › Aa", or
+#                      "HI › EN" when translating; click to cycle the input language
 #   * while recording  the glyph turns into a red dot and the tag into level bars
 #   * afterwards       a brief green check (pasted) or amber mark (nothing / error);
 #                      hover the capsule for the reason
-#   * right-click      language, Hinglish output, Open Santa window, Hide
+#   * right-click      language, output (as spoken / English / Arabic), Hinglish
+#                      output, Add words…, Open Santa window, login/restart/quit
 #   * drag             move it; the position is remembered
 #
 # It is a *non-activating* NSPanel: clicking it never takes keyboard focus away
@@ -73,8 +74,13 @@ def _santa_request(method, path, body=None, timeout=2.0):
         return json.loads(resp.read().decode('utf-8'))
 
 
-def language_tag(language: str, hinglish_output: str) -> str:
-    """'HI › अ', 'HG › अa' (mixed), 'HG › Aa' (romanized), 'AUTO'."""
+def language_tag(language: str, hinglish_output: str, output_language: str = 'same') -> str:
+    """'HI › अ', 'HG › अa' (mixed), 'HG › Aa' (romanized), 'AUTO'; with a
+    translation chosen: 'HI › EN', 'AUTO › AR'."""
+    if output_language in ('en', 'ar'):
+        source = 'AUTO' if language == 'auto' else ('HG' if language == 'hinglish'
+                                                    else LANG_CODE.get(language, language.upper()[:3]))
+        return f'{source} › {output_language.upper()}'
     if language == 'auto':
         return 'AUTO'
     if language == 'hinglish':
@@ -250,8 +256,15 @@ class _PillTarget(NSObject):
         if self.pill is not None:
             self.pill.set_hinglish_output(sender.representedObject())
 
+    def chooseOutput_(self, sender):
+        if self.pill is not None:
+            self.pill.set_output_language(sender.representedObject())
+
     def openSanta_(self, sender):
         webbrowser.open(SANTA_URL + '/')
+
+    def addWords_(self, sender):
+        webbrowser.open(SANTA_URL + '/#vocab')      # Santa window opens Settings at the word list
 
     def hidePill_(self, sender):
         if self.pill is not None:
@@ -346,6 +359,7 @@ class SantaPill:
         self.level_smoothed = 0.0
         self.language = 'auto'
         self.hinglish_output = 'native'
+        self.output_language = 'same'
         self.hovered = False
         self.dragged = False
         self.drag_origin = None
@@ -358,7 +372,7 @@ class SantaPill:
 
     @property
     def tag(self) -> str:
-        return language_tag(self.language, self.hinglish_output)
+        return language_tag(self.language, self.hinglish_output, self.output_language)
 
     def current_flash(self):
         return self.flash if self.flash and time.time() < self.flash_until else None
@@ -414,11 +428,16 @@ class SantaPill:
         for code in LANG_CYCLE:
             add(LANG_NAME[code], 'chooseLanguage:', code, checked=(code == self.language))
         menu.addItem_(NSMenuItem.separatorItem())
+        for value, title in (('same', 'Output: as spoken'), ('en', 'Output: English (translate)'),
+                             ('ar', 'Output: Arabic (translate)')):
+            add(title, 'chooseOutput:', value, checked=(value == self.output_language))
+        menu.addItem_(NSMenuItem.separatorItem())
         add('Hinglish: mixed script (हिन्दी + English)', 'chooseHinglishOutput:', 'native',
             checked=(self.hinglish_output == 'native'))
         add('Hinglish: romanized (Latin)', 'chooseHinglishOutput:', 'roman',
             checked=(self.hinglish_output == 'roman'))
         menu.addItem_(NSMenuItem.separatorItem())
+        add('Add words Santa should know…', 'addWords:')
         add('Open Santa window', 'openSanta:')
         menu.addItem_(NSMenuItem.separatorItem())
         add('Start at login', 'toggleLogin:', checked=start_at_login_enabled())
@@ -492,6 +511,10 @@ class SantaPill:
         self.hinglish_output = value
         self._save({'hinglish_output': value})
 
+    def set_output_language(self, value):
+        self.output_language = value
+        self._save({'output_language': value})
+
     def _save(self, changes):
         def run():
             try:
@@ -504,6 +527,7 @@ class SantaPill:
         try:
             s = _santa_request('GET', '/api/settings')['settings']
             self.language, self.hinglish_output = s['language'], s['hinglish_output']
+            self.output_language = s.get('output_language', 'same')
         except Exception:
             pass
 
