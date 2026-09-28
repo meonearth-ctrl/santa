@@ -69,6 +69,10 @@ dependencies = [
 # Models auto-download from huggingface.co/ggerganov/whisper.cpp on first use.
 whispercpp = ["pywhispercpp>=1.2"]
 
+# Santa: optional Apple-Silicon GPU fast path (whisper.cpp on Metal) for short clips.
+# Version pinned to the one Santa was measured with (see docs/santa/EVALUATION.md).
+santa-gpu = ["pywhispercpp>=1.5.1,<1.6; sys_platform=='darwin' and platform_machine=='arm64'"]
+
 # Spectral noise suppression via noisereduce (set `audio.noise_suppression.enabled: true`)
 noise = ["noisereduce>=3.0.0"]
 
@@ -79,6 +83,8 @@ loopback = ["soundcard>=0.4.2"]
 [project.scripts]
 whisper-local = "whisper_key.main:main"
 wl = "whisper_key.main:main"
+santa = "whisper_key.santa.cli:main"
+santa-dictation = "whisper_key.santa.dictation:main"
 
 [project.urls]
 Homepage = "https://github.com/drajb/whisper-local"
@@ -93,4 +99,4 @@ Changelog = "https://github.com/drajb/whisper-local/blob/master/CHANGELOG.md"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"whisper_key" = ["assets/**/*", "platform/*/assets/*", "config.defaults.yaml", "commands.defaults.yaml", "profiles.defaults.yaml", "app_rules.defaults.yaml", "transforms.defaults.yaml"]
+"whisper_key" = ["assets/**/*", "platform/*/assets/*", "config.defaults.yaml", "commands.defaults.yaml", "profiles.defaults.yaml", "app_rules.defaults.yaml", "transforms.defaults.yaml", "santa/web/*"]

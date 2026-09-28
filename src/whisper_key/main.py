@@ -169,6 +169,11 @@ def setup_streaming(streaming_config, model_registry):
 def setup_whisper_engine(whisper_config, vad_manager, model_registry, log_transcriptions=False, config_manager=None):
     backend = whisper_config.get('backend', 'faster_whisper')
 
+    # Santa: delegate audio -> text to the local Santa server (santa/desktop_bridge.py)
+    if backend == 'santa':
+        from .santa.desktop_bridge import SantaHttpEngine
+        return SantaHttpEngine(language=whisper_config.get('language'))
+
     if backend == 'whisper_cpp':
         from .whisper_engine_cpp import WhisperEngineCpp
         return WhisperEngineCpp(

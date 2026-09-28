@@ -1,0 +1,26 @@
+{
+  "_note": "SYNTHETIC evaluation set: rendered offline with macOS text-to-speech voices. Useful for smoke tests and relative speed/strategy comparisons ONLY. It does not establish accuracy on real human speech (accents, noise, natural code-switching, Kuwaiti dialect). Put real recordings in santa-app/eval/human/ (see README there).",
+  "samples": [
+    {"id": "en_names_numbers", "mode": "en", "voice": "Rishi",
+     "text": "Please send the revised budget of 12,500 Kuwaiti dinars to Amin Mohammed by 15 October 2026."},
+    {"id": "en_long", "mode": "en", "voice": "Aman",
+     "text": "Good morning everyone. Today we are reviewing the second phase of the workforce scheduling rollout. The pilot ran in six restaurants for four weeks, and overtime hours dropped by about eleven percent. However, the Salmiya and Fahaheel branches reported problems with shift swaps on weekends. Before we expand to all forty branches, the IT team will fix the approval workflow, and the area managers will receive a one hour training session. We also need the payroll cut-off moved from the twentieth to the twenty-second of each month. Please send your comments by Thursday, and we will circulate the final plan next Sunday."},
+    {"id": "hi_short", "mode": "hi", "voice": "Lekha",
+     "text": "नमस्ते, मेरा नाम शौविक बिस्वास है। कल सुबह दस बजे हमारी बैठक होगी।"},
+    {"id": "hi_long", "mode": "hi", "voice": "Lekha",
+     "text": "आज हमने नए कर्मचारियों की भर्ती के बारे में चर्चा की। हमें अगले महीने तक पच्चीस नए लोगों की ज़रूरत है। सभी उम्मीदवारों का साक्षात्कार शुक्रवार तक पूरा होना चाहिए। उसके बाद प्रशिक्षण कार्यक्रम शुरू होगा, जो लगभग दो हफ़्ते चलेगा।"},
+    {"id": "ar_msa", "mode": "ar", "voice": "Majed",
+     "text": "مرحباً، أود أن أحجز موعداً مع مدير الموارد البشرية يوم الأحد القادم في الساعة العاشرة صباحاً."},
+    {"id": "ar_gulf_text", "mode": "ar", "voice": "Majed",
+     "text": "شلونك؟ إن شاء الله أشوفك باچر في الدوام، لا تنسى الاجتماع الساعة تسع.",
+     "caveat": "Kuwaiti wording read by a Modern Standard Arabic synthetic voice; not real Gulf pronunciation."},
+    {"id": "bn_short", "mode": "bn", "voice": "Piya",
+     "text": "আমার নাম শৌভিক বিশ্বাস। আগামীকাল সকাল দশটায় আমাদের মিটিং আছে।"},
+    {"id": "hinglish_meeting", "mode": "hinglish", "voice": "Lekha",
+     "text": "आज की meeting में हमें budget finalize करना है, फिर मैं report भेज दूँगा।"},
+    {"id": "hinglish_payroll", "mode": "hinglish", "voice": "Lekha",
+     "text": "Salary revision का data Friday तक चाहिए, otherwise payroll में delay हो जाएगा।"},
+    {"id": "hinglish_loanwords", "mode": "hinglish", "voice": "Lekha",
+     "text": "कल सुबह मैं office जल्दी आऊँगा क्योंकि client के साथ call है।"}
+  ]
+}

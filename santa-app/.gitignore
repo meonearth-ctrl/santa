@@ -1,0 +1,6 @@
+# Local outputs of Santa dev/eval scripts — never committed
+dev/out/
+eval/synthetic/
+eval/human/*
+!eval/human/README.md
+!eval/human/manifest.example.json

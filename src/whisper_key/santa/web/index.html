@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Santa</title>
+<link rel="icon" href="/static/santa.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><img src="/static/santa.svg" alt="" width="28" height="28"><span>Santa</span></div>
+  <div id="modelPill" class="pill" title="Speech model status">Model: …</div>
+  <nav class="topnav">
+    <button id="historyBtn" class="ghost" hidden>History</button>
+    <button id="settingsBtn" class="ghost">Settings</button>
+    <button id="quitBtn" class="ghost danger-text" title="Stop the Santa server">Quit Santa</button>
+  </nav>
+</header>
+
+<main class="layout">
+  <section class="panel recorder" aria-label="Recorder">
+    <div class="controls-row">
+      <label class="field">
+        <span>Language</span>
+        <select id="languageSel"></select>
+      </label>
+      <label class="field" id="hinglishOutField" hidden>
+        <span>Hinglish output</span>
+        <select id="hinglishOutSel">
+          <option value="native">Mixed script (हिन्दी + English)</option>
+          <option value="roman">Romanized (Latin letters)</option>
+        </select>
+      </label>
+      <label class="field grow">
+        <span>Microphone</span>
+        <select id="micSel"><option value="">System default microphone</option></select>
+      </label>
+    </div>
+
+    <div class="record-area">
+      <button id="recordBtn" class="record" aria-pressed="false" title="Start / stop recording (⌥S)">
+        <span class="dot" aria-hidden="true"></span>
+        <span id="recordLabel">Start recording</span>
+      </button>
+      <div class="meter-wrap">
+        <div class="status-line">
+          <span id="stateBadge" class="badge state-ready">Ready</span>
+          <span id="timer" class="timer">0:00</span>
+        </div>
+        <div class="meter" aria-hidden="true"><div id="meterFill"></div></div>
+        <div class="progress" id="progressWrap" hidden><div id="progressFill"></div></div>
+        <div class="row-actions">
+          <button id="cancelBtn" class="secondary" hidden>Cancel</button>
+          <button id="uploadBtn" class="secondary" title="Transcribe an audio file (⌥U)">Transcribe a file…</button>
+          <input id="fileInput" type="file" accept="audio/*,.m4a,.mp3,.wav,.ogg,.opus,.webm,.flac,.caf,.aac,.aiff" hidden>
+        </div>
+      </div>
+    </div>
+    <p id="autoHint" class="hint" hidden>Tip: choosing the language instead of Auto-detect is faster and more reliable — especially for Bengali and Hinglish.</p>
+    <div id="alert" class="alert" role="alert" hidden></div>
+  </section>
+
+  <section class="panel transcript" aria-label="Transcript">
+    <div class="transcript-head">
+      <h2>Transcript</h2>
+      <div class="toolbar">
+        <button id="copyBtn" class="secondary" title="Copy all (⌥C)">Copy</button>
+        <button id="exportBtn" class="secondary" title="Save as UTF-8 .txt (⌥E)">Export .txt</button>
+        <button id="clearBtn" class="secondary">Clear</button>
+      </div>
+    </div>
+    <textarea id="transcript" dir="auto" spellcheck="false"
+      placeholder="Your words appear here. You can edit freely — new dictation is inserted at the cursor."></textarea>
+    <details id="lastResult" class="last-result" hidden>
+      <summary>Last result details</summary>
+      <dl id="resultMeta"></dl>
+      <div class="raw-block">
+        <h3>Raw transcript (unchanged Whisper output)</h3>
+        <div id="rawText" class="rawtext" dir="auto"></div>
+        <button id="insertRawBtn" class="secondary small">Insert raw version</button>
+      </div>
+      <div class="raw-block" id="romanBlock" hidden>
+        <h3>Romanized (optional heuristic)</h3>
+        <div id="romanText" class="rawtext" dir="ltr"></div>
+        <button id="insertRomanBtn" class="secondary small">Insert romanized version</button>
+      </div>
+    </details>
+  </section>
+
+  <section class="panel history" id="historyPanel" hidden aria-label="History">
+    <div class="transcript-head">
+      <h2>History <small>(stored on this computer only)</small></h2>
+      <div class="toolbar"><button id="clearHistoryBtn" class="secondary danger-text">Delete all</button></div>
+    </div>
+    <ul id="historyList" class="history-list"></ul>
+  </section>
+
+  <p class="shortcuts">Shortcuts: <kbd>⌥ S</kbd> start/stop · <kbd>Esc</kbd> cancel · <kbd>⌥ C</kbd> copy · <kbd>⌥ E</kbd> export · <kbd>⌥ U</kbd> upload file</p>
+</main>
+
+<dialog id="settingsDlg" aria-label="Settings">
+  <form method="dialog" id="settingsForm">
+    <h2>Settings</h2>
+    <fieldset>
+      <legend>Speech model</legend>
+      <label class="field"><span>Model</span><select id="modelSel"></select></label>
+      <p id="modelNote" class="hint"></p>
+      <label class="field" id="engineField"><span>Engine</span>
+        <select id="engineSel">
+          <option value="auto">Automatic — Apple GPU for short clips (≤ 28 s), CPU otherwise</option>
+          <option value="cpu">CPU only (faster-whisper)</option>
+        </select></label>
+      <p class="hint">The GPU fast path uses whisper.cpp with Large-v3 Turbo (extra ~550 MB download, once). If its output looks damaged, Santa silently redoes the clip on the CPU.</p>
+      <button type="button" id="loadModelBtn" class="secondary">Load / download this model</button>
+    </fieldset>
+    <fieldset>
+      <legend>Hinglish</legend>
+      <label class="field"><span>Recognition strategy</span><select id="strategySel"></select></label>
+      <p class="hint">How Whisper is steered for mixed Hindi–English speech. Default chosen from measurements; see the guide.</p>
+    </fieldset>
+    <fieldset>
+      <legend>Output</legend>
+      <label class="check"><input type="checkbox" id="cleanupChk"> Light cleanup (spacing; capitalisation for English only). The raw text is always kept.</label>
+      <label class="check"><input type="checkbox" id="vadChk"> Skip silence (reduces made-up text on quiet audio)</label>
+      <label class="field"><span>Names &amp; vocabulary hint (optional)</span>
+        <input type="text" id="promptInput" maxlength="400" placeholder="e.g. Kout Food Group, Salmiya, ATOSS"></label>
+      <label class="field"><span>Accuracy vs speed (beam size)</span>
+        <select id="beamSel"><option value="1">1 – fastest</option><option value="3">3</option><option value="5">5 – default</option><option value="8">8 – slowest</option></select></label>
+    </fieldset>
+    <fieldset>
+      <legend>Privacy</legend>
+      <label class="check"><input type="checkbox" id="historyChk"> Keep a transcript history on this computer (off by default; audio is never kept)</label>
+      <label class="field"><span>Max upload size (MB)</span><input type="number" id="maxUploadInput" min="1" max="2000"></label>
+      <label class="field"><span>Max audio length (minutes)</span><input type="number" id="maxDurInput" min="1" max="240"></label>
+    </fieldset>
+    <div class="dlg-actions">
+      <button type="button" id="saveSettingsBtn">Save</button>
+      <button type="submit" class="secondary">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

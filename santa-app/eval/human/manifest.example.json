@@ -1,0 +1,7 @@
+{
+  "samples": [
+    {"id": "me_en_1", "file": "me_en_1.m4a", "mode": "en", "text": "What I actually said, word for word."},
+    {"id": "me_hinglish_1", "file": "me_hinglish_1.m4a", "mode": "hinglish", "text": "आज की meeting में budget discuss करना है।"},
+    {"id": "me_ar_kuwaiti_1", "file": "me_ar_kuwaiti_1.m4a", "mode": "ar", "text": "شلونك؟ ..."}
+  ]
+}
