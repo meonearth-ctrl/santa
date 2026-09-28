@@ -297,7 +297,7 @@ class ServiceTests(unittest.TestCase):
         while time.time() < deadline and any(j.state not in ('cancelled', 'done') for j in jobs):
             time.sleep(0.05)
         self.assertTrue(all(j.state == 'cancelled' for j in jobs), [j.state for j in jobs])
-        self.assertTrue(all(j.audio_bytes is None for j in jobs if j.state != 'queued'))
+        self.assertTrue(all(j.audio_path is None for j in jobs))   # temp audio removed
 
 
 class FakeAccelerator:
@@ -310,9 +310,10 @@ class FakeAccelerator:
     def ensure_loading(self): pass
     def get_status(self): return {'state': 'ready', 'message': 'fake gpu'}
 
-    def transcribe(self, samples, params, cancel_event=None):
+    def transcribe(self, samples, params, cancel_event=None, timestamps=False):
         from whisper_key.santa.accel_cpp import AcceleratorError
         self.calls += 1
+        self.timestamps = timestamps
         if self.damaged:
             raise AcceleratorError('split multi-byte character in output')
         return {'segments': [{'start': 0, 'end': 1, 'text': self.text}], 'detected_language': params.language,
@@ -344,7 +345,7 @@ class AcceleratorRoutingTests(unittest.TestCase):
         accel = FakeAccelerator()
         seen = []
         orig = accel.transcribe
-        accel.transcribe = lambda samples, params, cancel_event=None: (
+        accel.transcribe = lambda samples, params, cancel_event=None, timestamps=False: (
             seen.append((len(samples), params.language)) or dict(orig(samples, params), detected_language='hi'))
         svc = self._svc(accel)
         with mock.patch.object(accel_cpp, 'plan_chunks', return_value=[(0, 16000 * 20), (16000 * 21, 16000 * 40)]):
@@ -497,6 +498,143 @@ class DesktopBridgeTests(unittest.TestCase):
         from whisper_key import main as wl_main
         engine = wl_main.setup_whisper_engine({'backend': 'santa', 'language': 'auto'}, None, None)
         self.assertIsInstance(engine, self.bridge.SantaHttpEngine)
+
+
+
+# ── Transcript export, GPU output checks, watch folder, lanes (Hiring Right) ─
+class ExportTests(unittest.TestCase):
+    def test_json_and_srt_written_atomically(self):
+        from whisper_key.santa import export
+        with tempfile.TemporaryDirectory() as d:
+            result = {'model': 'large-v3-turbo', 'detected_language': 'en', 'engine': 'x', 'audio_seconds': 3725.5,
+                      'segments': [{'start': 0.0, 'end': 4.2, 'text': ' Candidate number twelve. '},
+                                   {'start': 3661.25, 'end': 3665.0, 'text': 'मेरा नाम'},
+                                   {'start': 3666.0, 'end': 3667.0, 'text': '   '}]}
+            paths = export.write_transcript(d, '/x/2026-10-12_MNL_G1.mp4', result)
+            self.assertEqual([os.path.basename(p) for p in paths], ['2026-10-12_MNL_G1.json', '2026-10-12_MNL_G1.srt'])
+            data = json.load(open(paths[0], encoding='utf-8'))
+            self.assertEqual(data['source'], '2026-10-12_MNL_G1.mp4')
+            self.assertEqual(data['audio_seconds'], 3725.5)
+            self.assertEqual(data['segments'], [{'start': 0.0, 'end': 4.2, 'text': 'Candidate number twelve.'},
+                                                {'start': 3661.25, 'end': 3665.0, 'text': 'मेरा नाम'}])
+            srt = open(paths[1], encoding='utf-8').read()
+            self.assertIn('1\n00:00:00,000 --> 00:00:04,200\nCandidate number twelve.\n', srt)
+            self.assertIn('2\n01:01:01,250 --> 01:01:05,000\nमेरा नाम\n', srt)
+            self.assertEqual([n for n in os.listdir(d) if n.endswith('.part')], [])
+            self.assertTrue(export.already_exported(d, paths[0]))
+
+
+class GpuOutputCheckTests(unittest.TestCase):
+    def test_character_split_across_segments_is_reassembled(self):
+        from whisper_key.santa.accel_cpp import segments_from_raw, check_segments
+        word = 'लगभग'.encode('utf-8')
+        raw = [(0, 150, b'abc ' + word[:4]), (150, 300, word[4:] + b' done')]
+        segs = segments_from_raw(raw, 3.0)
+        self.assertEqual(''.join(s['text'] for s in segs), 'abc लगभग done')
+        check_segments(segs)                                   # no error
+        self.assertEqual((segs[1]['start'], segs[1]['end']), (1.5, 3.0))
+
+    def test_bad_patterns_rejected(self):
+        from whisper_key.santa.accel_cpp import check_segments, AcceleratorError
+        with self.assertRaises(AcceleratorError):
+            check_segments([{'start': 0, 'end': 2, 'text': 'broken \ufffd'}])
+        with self.assertRaises(AcceleratorError):
+            check_segments([{'start': 0, 'end': 5, 'text': 'one'}, {'start': 2, 'end': 6, 'text': 'two'}])
+        with self.assertRaises(AcceleratorError):
+            check_segments([{'start': 0, 'end': 5, 'text': 'उसके बाद प्रशिक्षण कार्यक्रम शुरू होगा, जो लग'},
+                            {'start': 5, 'end': 9, 'text': 'उसके बाद प्रशिक्षण कार्यक्रम शुरू होगा, जो लगभग'}])
+        check_segments([{'start': 0, 'end': 1, 'text': 'Thank you.'}, {'start': 1, 'end': 2, 'text': 'Thank you.'}])
+
+
+@unittest.skipUnless(HAVE_FW, 'faster-whisper not installed (needed to decode audio)')
+class HiringRightFlowTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.videos = os.path.join(self.tmp.name, '02_Batch_Videos')
+        self.out = os.path.join(self.tmp.name, '03_Transcripts')
+        os.makedirs(self.videos)
+        self.fake = FakeTranscriber(text='Candidate number 7, from Manila.')
+        self.svc = make_service(os.path.join(self.tmp.name, 'home'), self.fake)
+        self.svc.settings.update({'export_enabled': True, 'export_dir': self.out, 'watch_enabled': True,
+                                  'watch_dir': self.videos, 'watch_language': 'en'})
+
+    def _wait(self, job):
+        for _ in range(200):
+            if job.state in ('done', 'error', 'cancelled'):
+                return
+            time.sleep(0.05)
+
+    def test_upload_is_exported_and_temp_removed(self):
+        job = self.svc.submit(make_wav(2.0), '2026-10-12_MNL_G1.wav', 'en', source='upload')
+        self._wait(job)
+        self.assertEqual(job.state, 'done', job.error)
+        self.assertTrue(os.path.exists(os.path.join(self.out, '2026-10-12_MNL_G1.json')))
+        self.assertIsNone(job.audio_path)
+
+    def test_watch_folder_picks_up_settled_file_once_and_keeps_it(self):
+        from whisper_key.santa.watch import WatchFolder
+        video = os.path.join(self.videos, '2026-10-12_MNL_G2.wav')
+        with open(video, 'wb') as fh:
+            fh.write(make_wav(2.0))
+        old = time.time() - 60
+        os.utime(video, (old, old))
+        w = WatchFolder(self.svc, settle_seconds=0)
+        self.assertEqual(w.scan_once(), [])                  # first sighting: wait for it to settle
+        jobs = w.scan_once()
+        self.assertEqual(len(jobs), 1)
+        self.assertEqual(jobs[0].lane, 'batch')
+        self._wait(jobs[0])
+        self.assertEqual(jobs[0].state, 'done', jobs[0].error)
+        self.assertEqual(self.fake.calls[-1].language, 'en')
+        self.assertTrue(os.path.exists(video))               # never deleted by Santa
+        data = json.load(open(os.path.join(self.out, '2026-10-12_MNL_G2.json'), encoding='utf-8'))
+        self.assertEqual(data['segments'][0]['text'], 'Candidate number 7, from Manila.')
+        self.assertEqual(w.scan_once(), [])                  # not queued again
+        w2 = WatchFolder(self.svc, settle_seconds=0)         # after a restart: JSON is up to date
+        w2.scan_once()
+        self.assertEqual(w2.scan_once(), [])
+
+    def test_watch_failure_writes_error_file(self):
+        from whisper_key.santa.watch import WatchFolder
+        bad = os.path.join(self.videos, 'broken.mp4')
+        with open(bad, 'wb') as fh:
+            fh.write(b'not a video' * 100)
+        old = time.time() - 60
+        os.utime(bad, (old, old))
+        w = WatchFolder(self.svc, settle_seconds=0)
+        w.scan_once()
+        jobs = w.scan_once()
+        self._wait(jobs[0])
+        self.assertEqual(jobs[0].state, 'error')
+        self.assertTrue(os.path.exists(os.path.join(self.out, 'broken.error.txt')))
+
+    def test_batch_job_does_not_block_dictation(self):
+        slow_then_fast = FakeTranscriber(text='x', delay=1.5)
+        svc = make_service(os.path.join(self.tmp.name, 'home2'), slow_then_fast)
+        path = audio_input_write(make_wav(2.0))
+        batch = svc.submit_file(path, 'long.wav', 'en', source='watch')
+        time.sleep(0.2)
+        slow_then_fast.delay = 0.0
+        t = time.time()
+        quick = svc.transcribe_sync(make_wav(1.0), 'r.wav', 'en', timeout=10)
+        self.assertEqual(quick['state'], 'done')
+        self.assertLess(time.time() - t, 1.2)               # did not wait for the batch job
+        self._wait(batch)
+
+    def test_gpu_timestamps_requested_only_for_exported_files(self):
+        accel = FakeAccelerator()
+        self.svc.accel = accel
+        self.svc.transcribe_sync(make_wav(2.0), 'r.wav', 'en', timeout=10)          # api/dictation
+        self.assertFalse(accel.timestamps)
+        job = self.svc.submit(make_wav(2.0), 'interview.wav', 'en', source='upload')
+        self._wait(job)
+        self.assertTrue(accel.timestamps)
+
+
+def audio_input_write(data):
+    from whisper_key.santa import audio_input
+    return audio_input.write_temp(data, '.wav')
 
 
 if __name__ == '__main__':

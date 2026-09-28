@@ -1,8 +1,10 @@
 # santa/service.py
-# The reusable transcription service. Accepts audio bytes + options, runs them
-# through a small FIFO job queue on ONE worker thread (Whisper inference is
-# CPU-bound; running jobs in parallel only makes each slower), and returns
-# structured results. It has no knowledge of HTTP, browsers, hotkeys or the
+# The reusable transcription service. Accepts audio (a file or bytes) + options,
+# runs it through FIFO job queues and returns structured results. Two lanes:
+#   interactive  dictation, recordings, small uploads — max 3 pending
+#   batch        watch-folder files and big uploads (long interview videos)
+# Each lane has one worker. The GPU path works in <= 28 s pieces and takes a
+# lock per piece, so a dictation clip waits at most one piece behind a batch job. It has no knowledge of HTTP, browsers, hotkeys or the
 # clipboard, so the desktop UI today and a phone front-end in Phase 2 can both
 # call it.
 
@@ -14,7 +16,9 @@ import uuid
 from dataclasses import dataclass, field, replace
 from typing import Optional
 
-from . import audio_input, textproc, accel_cpp
+import os
+
+from . import audio_input, textproc, accel_cpp, export
 from .history import HistoryStore
 from .languages import (LANGUAGE_MODES, WHISPER_LANGUAGE_NAMES, resolve_decode_params,
                         UnknownLanguageMode)
@@ -24,7 +28,10 @@ from .settings import SettingsStore
 
 logger = logging.getLogger(__name__)
 
-MAX_PENDING_JOBS = 3          # queued + running; more is refused (HTTP 429)
+MAX_PENDING_JOBS = 3          # interactive lane: queued + running; more is refused (HTTP 429)
+MAX_BATCH_JOBS = 50           # batch lane
+BATCH_BYTES = 25_000_000      # uploads bigger than this go to the batch lane
+FILE_SOURCES = ('upload', 'watch')   # jobs that are exported when export is on
 JOB_TTL_SECONDS = 15 * 60     # finished jobs are forgotten after this
 
 
@@ -37,9 +44,12 @@ class QueueFull(Exception):
 class Job:
     id: str
     language_mode: str
-    source: str                      # 'recording' | 'upload' | 'api'
-    audio_bytes: Optional[bytes]
+    source: str                      # 'recording' | 'upload' | 'watch' | 'api'
+    audio_path: Optional[str]        # file to decode
     ext: str
+    source_name: str = ''            # original file name (for exports)
+    delete_after: bool = True        # temp files are deleted; watch-folder videos are not
+    lane: str = 'interactive'
     created: float = field(default_factory=time.time)
     state: str = 'queued'            # queued | decoding | waiting_model | transcribing | done | error | cancelled
     progress: Optional[float] = None
@@ -51,6 +61,7 @@ class Job:
     def public(self) -> dict:
         return {'id': self.id, 'state': self.state, 'progress': self.progress,
                 'language_mode': self.language_mode, 'source': self.source,
+                'source_name': self.source_name, 'lane': self.lane,
                 'result': self.result, 'error': self.error, 'created': self.created}
 
 
@@ -66,9 +77,9 @@ class TranscriptionService:
         self._transcribe_fn = transcribe_fn or run_transcription   # injectable for tests
         self._jobs = {}
         self._jobs_lock = threading.Lock()
-        self._queue = queue.Queue()
-        self._worker = threading.Thread(target=self._work, daemon=True, name='santa-worker')
-        self._worker.start()
+        self._queues = {'interactive': queue.Queue(), 'batch': queue.Queue()}
+        for lane, q in self._queues.items():
+            threading.Thread(target=self._work, args=(q,), daemon=True, name=f'santa-{lane}').start()
 
     # ── Public API ───────────────────────────────────────────────────────
     def preload(self) -> None:
@@ -89,21 +100,43 @@ class TranscriptionService:
 
     def submit(self, audio_bytes: bytes, filename: str, language_mode: str,
                source: str = 'upload') -> Job:
-        """Validate cheaply and enqueue. Raises AudioInputError / QueueFull / ValueError."""
-        if language_mode not in LANGUAGE_MODES:
-            raise UnknownLanguageMode(f"Unknown language '{language_mode}'.")
+        """Bytes in memory (recordings, API). Validates, stores a private temp file, enqueues."""
         s = self.settings.get()
         ext = audio_input.check_upload(filename, len(audio_bytes or b''), s['max_upload_mb'] * 1_000_000)
+        self._check_language(language_mode)
+        path = audio_input.write_temp(audio_bytes, ext)
+        try:
+            return self.submit_file(path, filename, language_mode, source=source, delete_after=True)
+        except Exception:
+            audio_input.remove_temp(path)
+            raise
+
+    def submit_file(self, path: str, filename: str, language_mode: str, source: str = 'upload',
+                    delete_after: bool = True) -> Job:
+        """A file already on disk (streamed upload or watch folder). Enqueues it."""
+        self._check_language(language_mode)
+        ext = os.path.splitext(filename or path)[1].lower() or '.wav'
+        if ext not in audio_input.SUPPORTED_EXTENSIONS:
+            audio_input.check_upload(filename, 1, 1)          # raises the friendly error
+        size = os.path.getsize(path)
+        lane = 'batch' if source == 'watch' or size > BATCH_BYTES else 'interactive'
         self._forget_old_jobs()
         with self._jobs_lock:
-            active = sum(1 for j in self._jobs.values() if j.state not in ('done', 'error', 'cancelled'))
-            if active >= MAX_PENDING_JOBS:
+            active = sum(1 for j in self._jobs.values()
+                         if j.lane == lane and j.state not in ('done', 'error', 'cancelled'))
+            if active >= (MAX_PENDING_JOBS if lane == 'interactive' else MAX_BATCH_JOBS):
                 raise QueueFull()
             job = Job(id=uuid.uuid4().hex[:16], language_mode=language_mode, source=source,
-                      audio_bytes=audio_bytes, ext=ext)
+                      audio_path=path, ext=ext, source_name=os.path.basename(filename or path),
+                      delete_after=delete_after, lane=lane)
             self._jobs[job.id] = job
-        self._queue.put(job.id)
+        self._queues[lane].put(job.id)
         return job
+
+    @staticmethod
+    def _check_language(language_mode: str) -> None:
+        if language_mode not in LANGUAGE_MODES:
+            raise UnknownLanguageMode(f"Unknown language '{language_mode}'.")
 
     def get_job(self, job_id: str) -> Optional[Job]:
         with self._jobs_lock:
@@ -131,9 +164,9 @@ class TranscriptionService:
         return job.public()
 
     # ── Worker ───────────────────────────────────────────────────────────
-    def _work(self) -> None:
+    def _work(self, jobs_queue) -> None:
         while True:
-            job_id = self._queue.get()
+            job_id = jobs_queue.get()
             job = self.get_job(job_id)
             if job is None or job.state == 'cancelled':
                 continue
@@ -151,13 +184,15 @@ class TranscriptionService:
                 self._finish(job, 'error', error={'code': 'internal', 'message':
                              f'Unexpected error: {type(exc).__name__}. See the Santa log.'})
             finally:
-                job.audio_bytes = None   # never keep raw audio around
+                self._release_audio(job)
+                if job.state == 'error' and job.source == 'watch':
+                    self._export_error(job)
 
     def _run(self, job: Job) -> None:
         s = self.settings.get()
         job.state = 'decoding'
-        decoded = audio_input.decode_bytes(job.audio_bytes, job.ext, s['max_duration_min'] * 60)
-        job.audio_bytes = None
+        decoded = audio_input.decode_path(job.audio_path, s['max_duration_min'] * 60)
+        self._release_audio(job)   # decoded samples are in memory; drop the temp file now
         if job.cancel_event.is_set():
             raise TranscriptionCancelled()
 
@@ -172,7 +207,7 @@ class TranscriptionService:
         if self._accel_wanted(s) and self.accel.ready() and not params.multilingual:
             job.state, job.progress = 'transcribing', None
             try:
-                raw = self._gpu_transcribe(decoded.samples, params, job)
+                raw = self._gpu_transcribe(decoded.samples, params, job, timestamps=self._wants_export(job, s))
             except accel_cpp.AcceleratorError as exc:
                 logger.info('job %s: GPU fast path rejected (%s); using CPU engine', job.id, exc)
                 raw = None
@@ -187,6 +222,12 @@ class TranscriptionService:
             raw.setdefault('engine', 'faster-whisper · CPU')
         model_key = s['model']
         result = self._build_result(job, raw, decoded.duration_s, model_key, params, s)
+        if self._wants_export(job, s) and result['segments']:
+            try:
+                result['exported'] = export.write_transcript(s['export_dir'], job.source_name, result)
+            except OSError as exc:
+                result['export_error'] = f'Could not save transcript files: {exc}'
+                logger.warning('job %s: export failed: %s', job.id, exc)
         if s['history_enabled'] and result['text']:
             self.history.add(result['text'], job.language_mode, result['detected_language'],
                              model_key, decoded.duration_s, raw_text=result['raw_text'])
@@ -196,28 +237,49 @@ class TranscriptionService:
                     model_key, job.language_mode)
         self._finish(job, 'done', result=result)
 
-    def _gpu_transcribe(self, samples, params, job: Job) -> dict:
+    def _gpu_transcribe(self, samples, params, job: Job, timestamps: bool = False) -> dict:
         if len(samples) / 16000.0 <= accel_cpp.MAX_CLIP_SECONDS:
-            return self.accel.transcribe(samples, params, cancel_event=job.cancel_event)
+            return self.accel.transcribe(samples, params, cancel_event=job.cancel_event, timestamps=timestamps)
         chunks = accel_cpp.plan_chunks(samples)
         if not chunks:
             raise accel_cpp.AcceleratorError('no speech regions found for chunking')
         segments, seconds, detected = [], 0.0, None
         chunk_params = replace(params)
         for n, (start, end) in enumerate(chunks, 1):
-            part = self.accel.transcribe(samples[start:end], chunk_params, cancel_event=job.cancel_event)
+            part = self.accel.transcribe(samples[start:end], chunk_params, cancel_event=job.cancel_event,
+                                         timestamps=timestamps)
             if chunk_params.language is None and part.get('detected_language'):
                 # Auto-detect: decide the language once, on the first piece, so
                 # later pieces can't flip language mid-document.
                 chunk_params = replace(chunk_params, language=part['detected_language'])
             detected = detected or part.get('detected_language')
-            text = ''.join(seg['text'] for seg in part['segments'])
-            segments.append({'start': round(start / 16000, 2), 'end': round(end / 16000, 2), 'text': text})
+            offset = start / 16000.0
+            for seg in part['segments']:                 # piece-relative -> file times
+                segments.append({'start': round(seg['start'] + offset, 2),
+                                 'end': round(seg['end'] + offset, 2), 'text': seg['text']})
             seconds += part['transcribe_seconds']
             job.progress = n / len(chunks)
         return {'segments': segments, 'detected_language': detected, 'language_probability': None,
                 'transcribe_seconds': round(seconds, 2),
                 'engine': f'whisper.cpp · Metal GPU ({len(chunks)} pieces split at pauses)'}
+
+    @staticmethod
+    def _wants_export(job: Job, s: dict) -> bool:
+        return bool(s['export_enabled'] and s['export_dir'] and job.source in FILE_SOURCES)
+
+    def _export_error(self, job: Job) -> None:
+        s = self.settings.get()
+        if self._wants_export(job, s) and job.error:
+            try:
+                export.write_error(s['export_dir'], job.source_name, job.error['message'])
+            except OSError:
+                pass
+
+    @staticmethod
+    def _release_audio(job: Job) -> None:
+        if job.audio_path and job.delete_after:
+            audio_input.remove_temp(job.audio_path)
+        job.audio_path = None
 
     @staticmethod
     def _build_result(job: Job, raw: dict, duration_s: float, model_key: str, params, s: dict) -> dict:
@@ -248,11 +310,12 @@ class TranscriptionService:
             'model': model_key,
             'engine': raw.get('engine'),
             'notes': params.notes,
+            'source_name': job.source_name,
         }
 
     def _finish(self, job: Job, state: str, result: dict = None, error: dict = None) -> None:
         job.state, job.result, job.error = state, result, error
-        job.audio_bytes = None
+        self._release_audio(job)
         job.progress = 1.0 if state == 'done' else job.progress
         job.finished = time.time()
 

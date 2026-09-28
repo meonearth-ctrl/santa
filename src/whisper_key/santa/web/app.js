@@ -86,6 +86,9 @@ async function loadConfig() {
   }
   modelSel.value = ui.settings.model;
   updateModelNote();
+  const watchLang = $('watchLangSel');
+  watchLang.innerHTML = '';
+  for (const l of ui.config.languages) watchLang.add(new Option(l.label, l.key));
   const stratSel = $('strategySel');
   stratSel.innerHTML = '';
   for (const s of ui.config.hinglish_strategies) stratSel.add(new Option(s.label, s.key));
@@ -114,6 +117,11 @@ function fillSettingsForm() {
   $('historyChk').checked = s.history_enabled;
   $('maxUploadInput').value = s.max_upload_mb;
   $('maxDurInput').value = s.max_duration_min;
+  $('exportChk').checked = s.export_enabled;
+  $('exportDirInput').value = s.export_dir;
+  $('watchChk').checked = s.watch_enabled;
+  $('watchDirInput').value = s.watch_dir;
+  $('watchLangSel').value = s.watch_language;
   updateModelNote();
 }
 
@@ -142,6 +150,7 @@ async function pollStatus() {
   try {
     const st = await api('GET', '/api/status');
     renderModelStatus(st.model, st.accelerator);
+    if (st.watch && st.watch.state !== 'off') $('modelPill').textContent += ' · ' + st.watch.message;
     const busy = ['checking', 'downloading', 'loading'].includes(st.model.state) ||
       (st.accelerator && ['loading', 'downloading'].includes(st.accelerator.state));
     statusTimer = setTimeout(pollStatus, busy ? 700 : 3000);
@@ -371,6 +380,7 @@ function renderResultDetails(r) {
     ['Transcription time', r.transcribe_seconds + ' s'],
     ['Model', r.model],
     ['Engine', r.engine || '—'],
+    ['Saved files', r.exported ? r.exported.join('\n') : (r.export_error || '—')],
   ];
   for (const [k, v] of rows) { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; meta.append(dt, dd); }
   $('rawText').textContent = r.raw_text || '(empty)';
@@ -488,6 +498,9 @@ function wire() {
         user_prompt: $('promptInput').value, beam_size: Number($('beamSel').value),
         history_enabled: $('historyChk').checked,
         max_upload_mb: Number($('maxUploadInput').value), max_duration_min: Number($('maxDurInput').value),
+        export_enabled: $('exportChk').checked, export_dir: $('exportDirInput').value.trim(),
+        watch_enabled: $('watchChk').checked, watch_dir: $('watchDirInput').value.trim(),
+        watch_language: $('watchLangSel').value,
       });
       $('settingsDlg').close();
       clearTimeout(statusTimer); pollStatus();

@@ -31,6 +31,13 @@ DEFAULTS = {
     'max_upload_mb': 200,
     'max_duration_min': 60,
     'preload_model': True,
+    # Transcript files for other tools (e.g. Hiring Right). Off unless set.
+    'export_enabled': False,
+    'export_dir': '',              # e.g. ~/Documents/Hiring Right/03_Transcripts
+    # Watch folder: new audio/video files dropped here are transcribed automatically.
+    'watch_enabled': False,
+    'watch_dir': '',               # e.g. ~/Documents/Hiring Right/02_Batch_Videos
+    'watch_language': 'en',
 }
 
 _CHOICES = {
@@ -39,6 +46,7 @@ _CHOICES = {
     'hinglish_output': set(HINGLISH_OUTPUTS),
     'compute_type': {'int8', 'int8_float32', 'float32'},
     'engine': {'auto', 'cpu'},
+    'watch_language': set(LANGUAGE_MODES),
 }
 _RANGES = {
     'cpu_threads': (0, 64), 'beam_size': (1, 10),

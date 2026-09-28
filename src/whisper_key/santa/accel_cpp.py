@@ -119,22 +119,26 @@ class MetalAccelerator:
             logger.warning('Metal accelerator unavailable: %s: %s', type(exc).__name__, exc)
             self.status = {'state': 'error', 'message': f'GPU fast path failed to load ({type(exc).__name__}); using CPU.'}
 
-    def transcribe(self, samples, params, cancel_event=None) -> dict:
+    def transcribe(self, samples, params, cancel_event=None, timestamps: bool = False) -> dict:
         """Same result shape as models.run_transcription. Raises AcceleratorError
-        when the output must not be trusted (caller falls back to the CPU)."""
+        when the output must not be trusted (caller falls back to the CPU).
+        timestamps=True returns Whisper's own segments with start/end times
+        (needed for transcript exports); False returns one segment per clip."""
         if self._model is None:
             raise AcceleratorError('not loaded')
         import _pywhispercpp as pw
         abort = (lambda: cancel_event.is_set()) if cancel_event is not None else None
         with self._lock:
             started = time.time()
+            # pywhispercpp keeps params between calls, so always set no_timestamps explicitly.
             self._model.transcribe(samples, language=params.language or 'auto',
                                    initial_prompt=params.initial_prompt or '',
-                                   abort_callback=abort)
+                                   no_timestamps=not timestamps, abort_callback=abort)
             elapsed = time.time() - started
             ctx = self._model._ctx
             n = pw.whisper_full_n_segments(ctx)
-            raw_bytes = [pw.whisper_full_get_segment_text(ctx, i) for i in range(n)]
+            raw = [(pw.whisper_full_get_segment_t0(ctx, i), pw.whisper_full_get_segment_t1(ctx, i),
+                    pw.whisper_full_get_segment_text(ctx, i)) for i in range(n)]
             try:
                 detected = pw.whisper_lang_str(pw.whisper_full_lang_id(ctx))
             except Exception:
@@ -142,14 +146,49 @@ class MetalAccelerator:
         if cancel_event is not None and cancel_event.is_set():
             from .models import TranscriptionCancelled
             raise TranscriptionCancelled()
-        text = b''.join(raw_bytes).decode('utf-8', errors='replace')
-        if '�' in text:
-            raise AcceleratorError('split multi-byte character in output')
         duration = len(samples) / 16000.0
+        segments = segments_from_raw(raw, duration) if timestamps else [
+            {'start': 0.0, 'end': round(duration, 2),
+             'text': b''.join(r[2] for r in raw).decode('utf-8', errors='replace')}]
+        check_segments(segments)
         return {
-            'segments': [{'start': 0.0, 'end': round(duration, 2), 'text': text}],
+            'segments': segments,
             'detected_language': detected,
             'language_probability': None,
             'transcribe_seconds': round(elapsed, 2),
             'engine': 'whisper.cpp · Metal GPU',
         }
+
+
+# ── Output safety checks (pure functions, unit-tested) ──────────────────────
+def segments_from_raw(raw, duration: float) -> list:
+    """(t0_cs, t1_cs, bytes) per segment -> [{'start','end','text'}]. Uses an
+    incremental UTF-8 decoder so a character whose bytes straddle two segments
+    ends up whole in the later segment instead of becoming U+FFFD."""
+    import codecs
+    decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+    out = []
+    for i, (t0, t1, data) in enumerate(raw):
+        text = decoder.decode(data, final=(i == len(raw) - 1))
+        out.append({'start': round(max(0.0, t0 / 100.0), 2),
+                    'end': round(min(duration, max(t0, t1) / 100.0), 2), 'text': text})
+    return out
+
+
+def _norm(text: str) -> str:
+    return ' '.join(text.lower().split())
+
+
+def check_segments(segments: list) -> None:
+    """Raise AcceleratorError for the failure patterns seen in testing:
+    a broken character, time going backwards (re-decoded window), or a long
+    phrase immediately repeated (duplicated window)."""
+    for i, seg in enumerate(segments):
+        if '\ufffd' in seg['text']:
+            raise AcceleratorError('split multi-byte character in output')
+        if i and seg['start'] < segments[i - 1]['end'] - 0.5:
+            raise AcceleratorError('overlapping segment times')
+        if i:
+            cur, prev = _norm(seg['text']), _norm(segments[i - 1]['text'])
+            if len(cur) >= 12 and (cur == prev or (len(prev) >= 12 and cur[:20] in prev)):
+                raise AcceleratorError('repeated phrase across segments')

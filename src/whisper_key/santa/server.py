@@ -21,7 +21,7 @@ from importlib import resources
 from urllib.parse import urlparse, parse_qs, unquote
 
 from . import __version__, APP_NAME
-from .audio_input import AudioInputError
+from .audio_input import AudioInputError, check_upload, new_temp_path, remove_temp
 from .languages import language_modes_for_ui, hinglish_strategies_for_ui, UnknownLanguageMode
 from .models import catalog_for_ui, total_ram_gb, CATALOG
 from .service import TranscriptionService, QueueFull
@@ -182,25 +182,49 @@ class SantaHandler(BaseHTTPRequestHandler):
         if length > limit:
             return self._error(413, 'audio_too_large',
                                f'File is {length / 1e6:.0f} MB; the limit is {limit / 1e6:.0f} MB.')
-        data = self._read_exact(length)
-        if data is None:
-            return self._error(400, 'upload_interrupted', 'The upload was interrupted. Please try again.')
         language = (query.get('language') or ['auto'])[0]
         filename = unquote((query.get('filename') or ['recording.wav'])[0])[:200]
         source = (query.get('source') or ['upload'])[0]
         source = source if source in ('recording', 'upload') else 'upload'
         try:
-            job = svc.submit(data, filename, language, source=source)
+            ext = check_upload(filename, length, limit)     # reject bad types before reading
         except AudioInputError as exc:
             return self._error(400, exc.code, exc.message)
+        # Stream the body to a private temp file: long interview videos can be
+        # gigabytes and must not be held in memory.
+        path = new_temp_path(ext)
+        if not self._read_to_file(length, path):
+            remove_temp(path)
+            return self._error(400, 'upload_interrupted', 'The upload was interrupted. Please try again.')
+        try:
+            job = svc.submit_file(path, filename, language, source=source, delete_after=True)
+        except AudioInputError as exc:
+            remove_temp(path)
+            return self._error(400, exc.code, exc.message)
         except UnknownLanguageMode as exc:
+            remove_temp(path)
             return self._error(400, 'bad_language', str(exc))
         except QueueFull as exc:
+            remove_temp(path)
             return self._error(429, exc.code, exc.message)
         return self._json(202, job.public())
 
+    def _read_to_file(self, length: int, path: str) -> bool:
+        remaining = length
+        with open(path, 'wb') as fh:
+            os.chmod(path, 0o600)
+            while remaining > 0:
+                chunk = self.rfile.read(min(remaining, 1 << 20))
+                if not chunk:
+                    return False
+                fh.write(chunk)
+                remaining -= len(chunk)
+        return True
+
     def _status(self) -> dict:
         st = self.server.service.status()
+        watcher = getattr(self.server.service, 'watcher', None)
+        st['watch'] = watcher.status if watcher else None
         st.update({'app': APP_NAME, 'version': __version__, 'time': time.time()})
         return st
 

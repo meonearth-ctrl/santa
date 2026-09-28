@@ -134,6 +134,17 @@
       <label class="field"><span>Max upload size (MB)</span><input type="number" id="maxUploadInput" min="1" max="2000"></label>
       <label class="field"><span>Max audio length (minutes)</span><input type="number" id="maxDurInput" min="1" max="240"></label>
     </fieldset>
+    <fieldset>
+      <legend>Transcript files &amp; watch folder</legend>
+      <label class="check"><input type="checkbox" id="exportChk"> Save every uploaded or watched file's transcript as <b>.json</b> + <b>.srt</b> (with timestamps)</label>
+      <label class="field"><span>Save transcripts to</span>
+        <input type="text" id="exportDirInput" placeholder="~/Documents/Hiring Right/03_Transcripts"></label>
+      <label class="check"><input type="checkbox" id="watchChk"> Automatically transcribe new audio/video files dropped in a folder</label>
+      <label class="field"><span>Watch folder</span>
+        <input type="text" id="watchDirInput" placeholder="~/Documents/Hiring Right/02_Batch_Videos"></label>
+      <label class="field"><span>Language for watched files</span><select id="watchLangSel"></select></label>
+      <p class="hint">Watched files are never moved or deleted. A file is skipped when an up-to-date .json transcript already exists. Failures are written as &lt;name&gt;.error.txt.</p>
+    </fieldset>
     <div class="dlg-actions">
       <button type="button" id="saveSettingsBtn">Save</button>
       <button type="submit" class="secondary">Close</button>

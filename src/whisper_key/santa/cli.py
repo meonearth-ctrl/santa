@@ -100,6 +100,9 @@ def main(argv=None) -> int:
     logging.getLogger(__name__).info('%s %s listening on %s (log: %s)', APP_NAME, __version__, url, log_path)
     if settings.get()['preload_model']:
         service.preload()
+    from .watch import WatchFolder
+    service.watcher = WatchFolder(service)      # idle unless enabled in Settings
+    service.watcher.start()
     print(f'\n🎅  {APP_NAME} is running at {url}\n    Close this window or use "Quit Santa" in the app to stop.\n')
     if not args.no_browser:
         webbrowser.open(url)

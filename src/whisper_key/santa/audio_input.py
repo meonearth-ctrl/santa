@@ -15,6 +15,7 @@ SAMPLE_RATE = 16000
 SUPPORTED_EXTENSIONS = {
     '.wav', '.wave', '.mp3', '.m4a', '.mp4', '.aac', '.ogg', '.oga', '.opus',
     '.webm', '.flac', '.caf', '.aif', '.aiff',
+    '.mov', '.m4v', '.mkv',                      # video files: the audio track is used
 }
 
 # Below this peak amplitude we treat a clip as silence (no speech possible).
@@ -69,22 +70,42 @@ def check_upload(filename: str, size_bytes: int, max_bytes: int) -> str:
 
 def decode_bytes(data: bytes, ext: str, max_duration_s: float) -> DecodedAudio:
     """Write to a private temp file, decode to 16 kHz mono, delete the file."""
+    path = write_temp(data, ext)
+    try:
+        return decode_path(path, max_duration_s)
+    finally:
+        remove_temp(path)
+
+
+def write_temp(data: bytes, ext: str) -> str:
+    """Private temp file (0600) inside its own santa-* directory."""
     tmp_dir = tempfile.mkdtemp(prefix='santa-')
     path = os.path.join(tmp_dir, 'input' + ext)
-    try:
-        with open(path, 'wb') as fh:
-            fh.write(data)
+    with open(path, 'wb') as fh:
         os.chmod(path, 0o600)
-        try:
-            from faster_whisper.audio import decode_audio
-            samples = decode_audio(path, sampling_rate=SAMPLE_RATE)
-        except Exception as exc:
-            raise UnsupportedAudio(
-                "Could not read this audio. The file may be damaged or in an unsupported "
-                f"format ({type(exc).__name__}).") from exc
-    finally:
-        _remove_quietly(path)
-        _remove_quietly(tmp_dir, is_dir=True)
+        fh.write(data)
+    return path
+
+
+def new_temp_path(ext: str) -> str:
+    """Path for a streamed upload; caller writes it and later calls remove_temp()."""
+    return os.path.join(tempfile.mkdtemp(prefix='santa-'), 'input' + ext)
+
+
+def remove_temp(path: str) -> None:
+    _remove_quietly(path)
+    _remove_quietly(os.path.dirname(path), is_dir=True)
+
+
+def decode_path(path: str, max_duration_s: float) -> DecodedAudio:
+    """Decode any supported audio/video file to 16 kHz mono float32 (PyAV)."""
+    try:
+        from faster_whisper.audio import decode_audio
+        samples = decode_audio(path, sampling_rate=SAMPLE_RATE)
+    except Exception as exc:
+        raise UnsupportedAudio(
+            "Could not read this audio. The file may be damaged or in an unsupported "
+            f"format ({type(exc).__name__}).") from exc
     return check_samples(np.asarray(samples, dtype=np.float32), max_duration_s)
 
 

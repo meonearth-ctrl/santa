@@ -81,7 +81,7 @@ textarea#transcript { width: 100%; min-height: 280px; margin-top: 12px; padding:
 .last-result summary { cursor: pointer; color: var(--muted); }
 .last-result dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; }
 .last-result dt { color: var(--muted); }
-.last-result dd { margin: 0; }
+.last-result dd { margin: 0; white-space: pre-line; overflow-wrap: anywhere; }
 .raw-block h3 { font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
 .rawtext { white-space: pre-wrap; padding: 10px; border-radius: 10px; background: var(--bg); border: 1px dashed var(--line);
   font-size: 16px; line-height: 1.6; unicode-bidi: plaintext; margin-bottom: 6px; }
