@@ -55,6 +55,7 @@ WIDTH, HEIGHT = 84, 26
 RADIUS = HEIGHT / 2
 IDLE_ALPHA, ACTIVE_ALPHA = 0.55, 1.0
 FLASH_SECONDS = 1.4
+FAILURE_SECONDS = 4.0
 
 # NSTrackingArea options: mouseEnteredAndExited | activeAlways | inVisibleRect
 _TRACKING = 0x01 | 0x80 | 0x200
@@ -377,6 +378,11 @@ class SantaPill:
 
     def flash_success(self):
         from . import desktop_bridge
+        if desktop_bridge.PASTE_BLOCKED:
+            self._set('idle', flash='failure',
+                      reason='Copied — press ⌘V. To paste automatically, allow Santa Assistant in '
+                             'System Settings › Privacy & Security › Accessibility, then reopen it.')
+            return
         self._set('idle', flash='success',
                   reason=(desktop_bridge.LAST_RESULT or {}).get('text') or 'Pasted')
 
@@ -400,7 +406,8 @@ class SantaPill:
         with self._lock:
             self.mode = mode
             if flash:
-                self.flash, self.flash_until = flash, time.time() + FLASH_SECONDS
+                hold = FAILURE_SECONDS if flash == 'failure' else FLASH_SECONDS
+                self.flash, self.flash_until = flash, time.time() + hold
             if reason is not None:
                 self.reason = reason
 

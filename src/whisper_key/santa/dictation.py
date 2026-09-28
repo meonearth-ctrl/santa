@@ -25,6 +25,8 @@ def main() -> int:
     _main_thread_garbage_collection()
     _install_floating_pill()
     _headless_permission_handling()
+    _tap_to_latch()
+    _paste_permission_guard()
 
     from ..main import main as whisper_local_main
     sys.argv = [sys.argv[0]]
@@ -85,6 +87,65 @@ def _headless_permission_handling() -> None:
         return False                       # main() then just runs the event loop
 
     permissions.handle_missing_permission = ask_system
+
+
+# A tap shorter than this (press + release) starts hands-free recording instead
+# of producing a useless half-second clip; tap fn (or click the capsule) to stop.
+TAP_SECONDS = 0.45
+
+
+def _tap_to_latch() -> None:
+    """Hold Fn+Ctrl = push-to-talk (as before). A quick *tap* of Fn+Ctrl now
+    keeps recording hands-free until you tap Fn (or click the capsule)."""
+    import time
+    from ..hotkey_listener import HotkeyListener
+
+    original = HotkeyListener._push_to_talk_released
+
+    def released(self):
+        sm = self.state_manager
+        started = getattr(getattr(sm, 'audio_recorder', None), 'recording_start_time', None)
+        if (sm.get_current_state() == 'recording' and started
+                and time.time() - started < TAP_SECONDS):
+            self.keys_armed = True          # the next Fn press is the stop key
+            print('   ⏺ Hands-free: tap fn (or click the capsule) to stop')
+            return
+        original(self)
+
+    HotkeyListener._push_to_talk_released = released
+
+
+def _paste_permission_guard() -> None:
+    """macOS silently drops the simulated ⌘V when the app has no Accessibility
+    permission, so the text never appears. Detect that, leave the text on the
+    clipboard, tell the user via the capsule, and open the right Settings pane
+    once so they can allow it."""
+    if sys.platform != 'darwin':
+        return
+    from .. import clipboard_manager as cm_module
+    from . import desktop_bridge
+    opened = {'done': False}
+    original = cm_module.ClipboardManager._clipboard_paste
+
+    def guarded(self, text):
+        try:
+            from ApplicationServices import AXIsProcessTrusted
+            trusted = bool(AXIsProcessTrusted())
+        except Exception:
+            trusted = True
+        if trusted:
+            desktop_bridge.PASTE_BLOCKED = False
+            return original(self, text)
+        self.copy_text(text)
+        desktop_bridge.PASTE_BLOCKED = True
+        print('   ⚠ Not allowed to paste (Accessibility off) — text is on the clipboard, press ⌘V')
+        if not opened['done']:
+            opened['done'] = True
+            import subprocess
+            subprocess.Popen(['open', 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'])
+        return True
+
+    cm_module.ClipboardManager._clipboard_paste = guarded
 
 
 if __name__ == '__main__':

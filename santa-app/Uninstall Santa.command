@@ -9,7 +9,7 @@ ask() { read -r -p "$1 [y/N] " a; [[ "$a" == "y" || "$a" == "Y" ]]; }
 echo "== Stopping Santa if it is running"
 curl -s -X POST -H 'X-Santa: 1' http://127.0.0.1:8765/api/shutdown >/dev/null 2>&1 && echo "stopped" || echo "not running"
 
-pkill -f santa-dictation 2>/dev/null
+pkill -f santa-dictation 2>/dev/null; sleep 2; pkill -9 -f santa-dictation 2>/dev/null
 if [ -d "$APP" ] && ask "Remove the Santa app launchers ($APP and Santa Assistant.app)?"; then rm -rf "$APP" "$ASSIST"; echo removed; fi
 if [ -d "$SUPPORT" ] && ask "Remove Santa's Python environment, settings, history and logs ($SUPPORT)?"; then
   rm -rf "$SUPPORT"; echo removed

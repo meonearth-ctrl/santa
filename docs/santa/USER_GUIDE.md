@@ -21,7 +21,8 @@ Both use the same engine and the **same language setting**.
   anywhere; it remembers the position.
 * **Mic** (left): click to start, click to stop → the text is pasted where your
   cursor is. The capsule never takes focus away from the app you're typing in.
-  Holding **Fn + Ctrl** works too.
+  **Fn + Ctrl**: hold while you speak and release to paste — or just *tap* it once
+  to dictate hands-free, then tap **Fn** (or click the capsule) to finish.
 * **Tag** (right): input language › output script — `EN › Aa`, `HI › अ`,
   `AR › ع`, `BN › অ`, `HG › अa` (Hinglish mixed) or `HG › Aa` (Hinglish
   romanized), `AUTO`. Click it to cycle the language.
@@ -30,7 +31,10 @@ Both use the same engine and the **same language setting**.
   recognised). Hover the capsule to read the last result or the reason.
 * Right-click: language, Hinglish output (mixed / romanized), Open Santa window, Hide.
 * First use: macOS asks for **Microphone** and **Accessibility** (to paste). For
-  the Fn+Ctrl hotkey also allow **Input Monitoring**.
+  the Fn+Ctrl hotkey also allow **Input Monitoring**. If Accessibility is off,
+  the capsule shows an amber **!**, the text is left on the clipboard (press ⌘V),
+  and the Accessibility settings page opens so you can switch Santa Assistant on
+  (then quit and reopen Santa Assistant).
 
 ## 1. Starting and stopping
 

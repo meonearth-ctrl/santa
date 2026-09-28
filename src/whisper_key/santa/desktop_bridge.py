@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = os.environ.get('SANTA_URL', 'http://127.0.0.1:8765')
 LAST_RESULT = None      # last successful result, shown by the floating pill
+PASTE_BLOCKED = False   # set when macOS refused the paste (no Accessibility permission)
 _HEADERS = {'X-Santa': '1'}
 
 
