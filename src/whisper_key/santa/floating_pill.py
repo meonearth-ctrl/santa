@@ -298,6 +298,7 @@ class SantaPill:
         self.window_origin = None
         self.glass_kind = None
         self._settings_checked = 0.0
+        self._gc_at = 0.0
         self._lock = threading.Lock()
         self.panel = None
 
@@ -445,6 +446,11 @@ class SantaPill:
     # ── Main-thread redraw ───────────────────────────────────────────────
     def _tick(self):
         now = time.time()
+        if now - self._gc_at > 5:               # cycle collection on the main thread only
+            self._gc_at = now                   # (see dictation._main_thread_garbage_collection)
+            import gc
+            if not gc.isenabled():
+                gc.collect()
         if now - self._settings_checked > 5:    # follow changes made in the Santa window
             self._settings_checked = now
             threading.Thread(target=self._refresh_settings, daemon=True).start()

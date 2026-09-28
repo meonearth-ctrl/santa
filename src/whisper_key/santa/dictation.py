@@ -22,12 +22,26 @@ def main() -> int:
         cm.update_user_setting('whisper', 'backend', 'santa')
         print('   ✓ Whisper Local dictation now uses Santa as its engine.')
 
+    _main_thread_garbage_collection()
     _install_floating_pill()
     _headless_permission_handling()
 
     from ..main import main as whisper_local_main
     sys.argv = [sys.argv[0]]
     return whisper_local_main() or 0
+
+
+def _main_thread_garbage_collection() -> None:
+    """Tk objects (Whisper Local's welcome/fallback windows) must be destroyed on
+    the main thread; if Python's cycle collector happens to free one on a worker
+    thread (e.g. the recorder starting), Tcl aborts the whole app
+    ("Tcl_AsyncDelete: async handler deleted by the wrong thread"). So automatic
+    cycle collection is switched off and the floating pill's main-thread timer
+    runs gc.collect() every few seconds instead (see floating_pill._tick).
+    Ordinary reference-counted objects are still freed immediately."""
+    import gc
+    gc.collect()
+    gc.disable()
 
 
 def _install_floating_pill() -> None:
@@ -50,6 +64,8 @@ def _install_floating_pill() -> None:
             print('   ✓ Santa floating assistant is on screen (drag to move, right-click for options)')
         except Exception as exc:
             print(f'   ⚠ Floating assistant unavailable: {type(exc).__name__}: {exc}')
+            import gc
+            gc.enable()        # no main-thread timer to collect for us
 
     sm_module.StateManager.attach_components = attach_with_pill
 
