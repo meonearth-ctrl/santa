@@ -16,20 +16,21 @@ Both use the same engine and the **same language setting**.
 
 ### The floating assistant
 * Start: Spotlight → **Santa Assistant** (or `santa-app/Santa Dictation (hotkey).command`).
-* The pill sits at the bottom of the screen, above all windows and full-screen apps.
-  Drag it anywhere; it remembers the position.
-* **Mic button**: click to start, click to stop → the text is pasted where your
-  cursor is. The pill never takes the focus away from the app you're typing in.
-* While you speak: green level bars. Then *Transcribing…*, then a preview of
-  what was pasted (or why nothing was, e.g. "No speech detected").
-* **Language chip** (right end): click to cycle AUTO → EN → HI → AR → HING → BN.
-  It's the same setting as in the Santa window.
-* Right-click: *Open Santa window*, *Hide until restart*. Quit from the menu-bar icon.
+* A small liquid-glass capsule sits at the bottom of the screen, above all windows
+  and full-screen apps. It is dimmed until you hover over it or dictate. Drag it
+  anywhere; it remembers the position.
+* **Mic** (left): click to start, click to stop → the text is pasted where your
+  cursor is. The capsule never takes focus away from the app you're typing in.
+  Holding **Fn + Ctrl** works too.
+* **Tag** (right): input language › output script — `EN › Aa`, `HI › अ`,
+  `AR › ع`, `BN › অ`, `HG › अa` (Hinglish mixed) or `HG › Aa` (Hinglish
+  romanized), `AUTO`. Click it to cycle the language.
+* While recording the mic becomes a red dot and the tag becomes level bars; then
+  three dots while transcribing; then a brief green ✓ (pasted) or amber ! (nothing
+  recognised). Hover the capsule to read the last result or the reason.
+* Right-click: language, Hinglish output (mixed / romanized), Open Santa window, Hide.
 * First use: macOS asks for **Microphone** and **Accessibility** (to paste). For
-  the Fn+Ctrl hotkey also allow **Input Monitoring**. Clicking the pill works
-  without Input Monitoring.
-
----
+  the Fn+Ctrl hotkey also allow **Input Monitoring**.
 
 ## 1. Starting and stopping
 
