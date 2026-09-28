@@ -7,7 +7,7 @@
 #   2. runs the real service + watch folder with export on;
 #   3. checks the .json/.srt files: format, timestamps increasing, candidate
 #      numbers present, and how far the GPU timestamps are from the CPU ones.
-import json, os, shutil, subprocess, sys, tempfile, time
+import json, logging, os, re, shutil, subprocess, sys, tempfile, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), 'src'))
 BASE = tempfile.mkdtemp(prefix='santa-hr-')
@@ -15,17 +15,19 @@ os.environ['SANTA_HOME'] = os.path.join(BASE, 'home')
 from whisper_key.santa.accel_cpp import MetalAccelerator     # noqa: E402
 from whisper_key.santa.service import TranscriptionService   # noqa: E402
 from whisper_key.santa.watch import WatchFolder              # noqa: E402
+logging.basicConfig(filename=os.path.join(HERE, 'out', 'hiring_right_check.log'), level=logging.INFO, filemode='w')
 
+# Interviewer = Rishi (en-IN); candidates = Tara (en-IN) and Lekha (hi-IN voice speaking English).
 TURNS = [
-    ('Aman', 'Good morning everyone, and welcome to the group interview for the restaurant crew positions. Please say your candidate number before you answer.'),
-    ('Rishi', 'Good morning. I am candidate number seven. I worked for three years as a barista in Manila, and I enjoy working in a busy team.'),
-    ('Aman', 'Thank you. Next, please.'),
+    ('Rishi', 'Good morning everyone, and welcome to the group interview for the restaurant crew positions. Please say your candidate number before you answer.'),
+    ('Lekha', 'Good morning. I am candidate number seven. I worked for three years as a barista in Manila, and I enjoy working in a busy team.'),
+    ('Rishi', 'Thank you. Next, please.'),
     ('Tara', 'Hello, I am candidate number twelve. I have two years of experience as a cashier, and I can work night shifts and weekends.'),
-    ('Aman', 'Candidate twelve, how would you handle an angry customer?'),
+    ('Rishi', 'Candidate twelve, how would you handle an angry customer?'),
     ('Tara', 'Candidate twelve. I would listen first, apologise, and then offer a quick solution, for example a replacement meal.'),
-    ('Rishi', 'Candidate number fifteen here. In my last job in Cebu I trained four new staff members on food safety.'),
-    ('Aman', 'Very good. Candidate seven, why do you want to work in Kuwait?'),
-    ('Rishi', 'Candidate seven. I want to grow my career in a large company and support my family.'),
+    ('Lekha', 'Candidate number fifteen here. In my last job in Cebu I trained four new staff members on food safety.'),
+    ('Rishi', 'Very good. Candidate seven, why do you want to work in Kuwait?'),
+    ('Lekha', 'Candidate seven. I want to grow my career in a large company and support my family.'),
 ]
 
 
@@ -90,7 +92,8 @@ def main():
             'segments': len(segs), 'engine': data.get('engine'),
             'times_increasing': all(segs[i]['start'] >= segs[i - 1]['start'] for i in range(1, len(segs))),
             'max_segment_s': round(max(s['end'] - s['start'] for s in segs), 1),
-            'mentions': {n: text.count(n) for n in ('number seven', 'number twelve', 'number fifteen', 'candidate seven', 'candidate twelve')},
+            'mentions': {n: len(re.findall(rf'(?:candidate|number|no\.)\s*(?:number\s*)?(?:{n}|{w})\b', text))
+                         for n, w in (('7', 'seven'), ('12', 'twelve'), ('15', 'fifteen'))},
             'srt_ok': open(os.path.join(out, stem + '.srt'), encoding='utf-8').read().startswith('1\n00:00:0'),
             'json_keys': sorted(data.keys()),
         }
@@ -104,10 +107,11 @@ def main():
         time.sleep(0.2)
     cpu = job.result['segments']
     report['short_segments_cpu'] = [{k: s[k] for k in ('start', 'end', 'text')} for s in cpu]
-    def first_time(segs, phrase):
-        return next((s['start'] for s in segs if phrase in s['text'].lower()), None)
-    report['timestamp_check'] = {p: (first_time(report['short_segments_gpu'], p), first_time(cpu, p))
-                                 for p in ('number seven', 'number twelve', 'number fifteen', 'candidate seven')}
+    def first_time(segs, n, w):
+        pat = re.compile(rf'(?:candidate|number|no\.)\s*(?:number\s*)?(?:{n}|{w})\b')
+        return next((s['start'] for s in segs if pat.search(s['text'].lower())), None)
+    report['timestamp_check'] = {n: (first_time(report['short_segments_gpu'], n, w), first_time(cpu, n, w))
+                                 for n, w in (('7', 'seven'), ('12', 'twelve'), ('15', 'fifteen'))}
     print('timestamps gpu vs cpu:', json.dumps(report['timestamp_check']))
     json.dump(report, open(os.path.join(HERE, 'out', 'hiring_right_check.json'), 'w'), ensure_ascii=False, indent=1)
     shutil.rmtree(BASE, ignore_errors=True)

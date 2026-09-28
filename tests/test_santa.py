@@ -355,6 +355,27 @@ class AcceleratorRoutingTests(unittest.TestCase):
         self.assertIn('2 pieces', r['engine'])
         self.assertEqual(svc._transcribe_fn.calls, [])
 
+    def test_bad_piece_is_redone_on_cpu_only(self):
+        import unittest.mock as mock
+        from whisper_key.santa import accel_cpp
+        accel = FakeAccelerator(text='gpu text')
+        calls = {'n': 0}
+        orig = accel.transcribe
+
+        def flaky(samples, params, cancel_event=None, timestamps=False):
+            calls['n'] += 1
+            if calls['n'] == 2:
+                raise accel_cpp.AcceleratorError('repeated phrase across segments')
+            return orig(samples, params, cancel_event, timestamps)
+        accel.transcribe = flaky
+        svc = self._svc(accel, cpu_text='cpu text')
+        with mock.patch.object(accel_cpp, 'plan_chunks',
+                               return_value=[(0, 16000 * 10), (16000 * 10, 16000 * 20), (16000 * 20, 16000 * 30)]):
+            r = svc.transcribe_sync(make_wav(30.0), 'r.wav', 'en', timeout=30)['result']
+        self.assertEqual(r['raw_text'], 'gpu text cpu text gpu text')
+        self.assertIn('1 redone on CPU', r['engine'])
+        self.assertEqual(len(svc._transcribe_fn.calls), 1)
+
     def test_cpu_setting_bypasses_gpu(self):
         accel = FakeAccelerator()
         svc = self._svc(accel)

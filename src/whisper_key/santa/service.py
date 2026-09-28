@@ -243,11 +243,19 @@ class TranscriptionService:
         chunks = accel_cpp.plan_chunks(samples)
         if not chunks:
             raise accel_cpp.AcceleratorError('no speech regions found for chunking')
-        segments, seconds, detected = [], 0.0, None
+        segments, seconds, detected, redone = [], 0.0, None, 0
         chunk_params = replace(params)
         for n, (start, end) in enumerate(chunks, 1):
-            part = self.accel.transcribe(samples[start:end], chunk_params, cancel_event=job.cancel_event,
-                                         timestamps=timestamps)
+            piece = samples[start:end]
+            try:
+                part = self.accel.transcribe(piece, chunk_params, cancel_event=job.cancel_event,
+                                             timestamps=timestamps)
+            except accel_cpp.AcceleratorError as exc:
+                # Only this piece failed the output checks: redo just this piece
+                # on the CPU engine instead of throwing away the whole file.
+                logger.info('job %s: piece %d/%d redone on CPU (%s)', job.id, n, len(chunks), exc)
+                part = self._cpu_piece(piece, chunk_params, job)
+                redone += 1
             if chunk_params.language is None and part.get('detected_language'):
                 # Auto-detect: decide the language once, on the first piece, so
                 # later pieces can't flip language mid-document.
@@ -259,9 +267,16 @@ class TranscriptionService:
                                  'end': round(seg['end'] + offset, 2), 'text': seg['text']})
             seconds += part['transcribe_seconds']
             job.progress = n / len(chunks)
+        note = f', {redone} redone on CPU' if redone else ''
         return {'segments': segments, 'detected_language': detected, 'language_probability': None,
                 'transcribe_seconds': round(seconds, 2),
-                'engine': f'whisper.cpp · Metal GPU ({len(chunks)} pieces split at pauses)'}
+                'engine': f'whisper.cpp · Metal GPU ({len(chunks)} pieces split at pauses{note})'}
+
+    def _cpu_piece(self, piece, params, job: Job) -> dict:
+        s = self.settings.get()
+        model = self.models.wait_ready(s['model'], cancel_event=job.cancel_event)
+        return self._transcribe_fn(model, piece, params, beam_size=s['beam_size'],
+                                   vad_filter=s['vad_filter'], cancel_event=job.cancel_event)
 
     @staticmethod
     def _wants_export(job: Job, s: dict) -> bool:

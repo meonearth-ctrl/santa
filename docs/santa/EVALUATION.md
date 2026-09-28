@@ -97,7 +97,42 @@ Large-v3 Turbo, CPU engine, 3 synthetic Hinglish clips (Lekha voice reading mixe
 | Hotkey dictation into other apps (`santa-dictation`) | starts ✅; needs your macOS permissions; bridge tested with unit tests | **awaiting your check** |
 | Real-speech accuracy (all languages, Kuwaiti Arabic, natural Hinglish) | not measured | **awaiting your recordings** |
 
-## 4. Known limitations
+## 4. Hiring Right hand-off (synthetic batch interview)
+
+A synthetic group interview (interviewer + two candidates announcing their
+numbers; macOS voices Rishi, Tara, Lekha), saved as `.mp4` (AAC), was dropped
+into a throw-away watch folder with export on (your real Hiring Right folders
+were not used for testing).
+
+| File | Audio | Wall time (incl. waiting for the copy to settle) | Engine | Segments | Candidate numbers found |
+|---|---|---|---|---|---|
+| `2026-10-12_MNL_G1.mp4` | 1.0 min | 6 s | GPU, 3 pieces | 11 | 7 ×3, 12 ×3, 15 ×1 (all) |
+| `2026-10-12_MNL_G2_long.mp4` (same talk ×76) | 76 min | 213 s | GPU, 178 pieces, 0 redone | 824 | 7: 228/228, 12: 198/228, 15: 66/76 |
+
+* `.json` has exactly the keys Hiring Right expects (`source`, `model`,
+  `audio_seconds`, `segments[start,end,text]`) plus `language` and `engine`;
+  `.srt` is valid; segment times always increase; longest segment 9.2 s.
+* **Timestamps**: GPU vs CPU start time of each candidate's first announcement:
+  9.32 / 9.42 s, 21.48 / 21.52 s, 40.66 / 40.68 s (≤ 0.1 s apart).
+* Numbers come out as digits ("candidate number 12") — match on digits and words.
+* ~13 % of "twelve/fifteen" mentions in the long file were missed or merged —
+  plan for Hiring Right to tolerate an occasional missed announcement.
+* Before per-piece fallback, an earlier synthetic build (with a garbled voice)
+  tripped the repeated-phrase check and pushed the whole 75-min file to the CPU
+  (14 min). Now only the failing piece is redone on the CPU.
+* Silent / unreadable video → `<name>.error.txt`; tested with unit tests.
+* Real batch videos (Filipino/Indian English, room noise, overlapping voices)
+  are **not yet tested** — please drop one real video in when you have it.
+
+## 5. Floating assistant
+
+Rendered offscreen on your Mac in every state (idle, recording with level
+bars, transcribing, success preview in Devanagari, failure, language chip) —
+see `santa-app/dev/pill_preview.py`. It is a non-activating, always-on-top
+panel on all Spaces. Clicking it to start/stop and pasting into another app
+need your macOS permissions and are **awaiting your check**.
+
+## 6. Known limitations
 * **Hinglish**: Whisper has no code-switching mode. With the default strategy
   English words usually stay in Latin, but a common English word said with a
   strong accent can still come out in Devanagari (e.g. "सालरी" for "salary"),

@@ -6,13 +6,28 @@ nothing is sent to any cloud service, and no audio is stored.
 
 It has two ways to use it:
 
-| | **Santa window** | **Santa Dictation** (hotkey) |
+| | **Santa window** | **Santa Assistant** (floating pill) |
 |---|---|---|
-| What | A page in your browser at `http://127.0.0.1:8765` | Types straight into *any* app |
-| How | Start / Stop button, or upload a file | Hold **Fn + Ctrl**, speak, release |
-| Best for | Long recordings, audio files, editing, export | Messages, emails, forms, chat |
+| What | A page in your browser at `http://127.0.0.1:8765` | A small bar that floats above every window and types into *any* app |
+| How | Start / Stop button, or upload a file | Click the red mic (click again to finish) — or hold **Fn + Ctrl**, speak, release |
+| Best for | Long recordings, audio/video files, editing, export | Messages, emails, forms, chat — Wispr Flow–style |
 
-Both use the same engine and the **same language setting** (chosen in the Santa window).
+Both use the same engine and the **same language setting**.
+
+### The floating assistant
+* Start: Spotlight → **Santa Assistant** (or `santa-app/Santa Dictation (hotkey).command`).
+* The pill sits at the bottom of the screen, above all windows and full-screen apps.
+  Drag it anywhere; it remembers the position.
+* **Mic button**: click to start, click to stop → the text is pasted where your
+  cursor is. The pill never takes the focus away from the app you're typing in.
+* While you speak: green level bars. Then *Transcribing…*, then a preview of
+  what was pasted (or why nothing was, e.g. "No speech detected").
+* **Language chip** (right end): click to cycle AUTO → EN → HI → AR → HING → BN.
+  It's the same setting as in the Santa window.
+* Right-click: *Open Santa window*, *Hide until restart*. Quit from the menu-bar icon.
+* First use: macOS asks for **Microphone** and **Accessibility** (to paste). For
+  the Fn+Ctrl hotkey also allow **Input Monitoring**. Clicking the pill works
+  without Input Monitoring.
 
 ---
 
@@ -96,7 +111,23 @@ is deleted as soon as it has been read.
   are kept on this Mac; a *History* button appears where you can insert or
   delete entries, or *Delete all*.
 
-## 7. Troubleshooting
+## 7. Hiring Right (batch interview videos)
+Settings › *Transcript files & watch folder*:
+* **Save transcripts to** `~/Documents/Hiring Right/03_Transcripts` → every
+  uploaded or watched file produces `<video name>.json` (source, model,
+  language, audio length, segments with start/end seconds and text) and
+  `<video name>.srt`. A failed file produces `<video name>.error.txt`.
+* **Watch folder** `~/Documents/Hiring Right/02_Batch_Videos`, language
+  English → drop a video there and it's transcribed automatically once it has
+  finished copying. Santa never moves or deletes the videos; a video that
+  already has an up-to-date `.json` is skipped.
+* Limits are set to 120 minutes / 2000 MB for these videos.
+* Long videos run in a separate lane, so the floating assistant keeps working
+  while a batch is being transcribed.
+* Speaker labels are not produced (no offline diarisation is installed);
+  Hiring Right assigns speakers from the numbers candidates announce.
+
+## 8. Troubleshooting
 | Problem | Fix |
 |---|---|
 | "Microphone access was denied" | Browser address bar › site settings › Microphone: Allow; and System Settings › Privacy & Security › Microphone: enable your browser |
@@ -110,7 +141,7 @@ is deleted as soon as it has been read.
 
 Logs (no transcript text or audio is logged): `~/Library/Application Support/Santa/logs/`.
 
-## 8. Uninstall
+## 9. Uninstall
 Double-click `santa-app/Uninstall Santa.command`. It stops Santa and asks
 before removing each item: the app launcher, Santa's private Python
 environment/settings/history/logs, and the downloaded models. Santa doesn't

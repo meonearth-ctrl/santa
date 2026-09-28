@@ -22,13 +22,18 @@ src/whisper_key/santa/
   models.py         model catalogue (multilingual only), background download/load, one model reused
   accel_cpp.py      Metal fast path (whisper.cpp large-v3-turbo q5_0), pause-based splitting,
                     byte-level UTF-8 reassembly, reject-and-fallback on damaged output
-  service.py        transcription service: FIFO queue, 1 worker, max 3 pending, cancel, TTL,
-                    engine routing (GPU -> CPU fallback), result building, optional history
+  service.py        transcription service: file-based jobs, two lanes (interactive max 3
+                    pending; batch for watch folder/big uploads), cancel, TTL, engine routing
+                    (GPU per ≤28 s piece, failing piece redone on CPU), export, optional history
   settings.py / history.py   JSON in ~/Library/Application Support/Santa (outside the repo)
   server.py         stdlib HTTP server on 127.0.0.1:8765 + JSON API + static UI
   cli.py            `santa` command (single instance, opens browser, logging)
   desktop_bridge.py Whisper Local hotkey app -> Santa server (backend "santa")
-  dictation.py      `santa-dictation` command
+  dictation.py      `santa-dictation` command (+ floating pill, headless permission prompt)
+  floating_pill.py  always-on-top non-activating NSPanel assistant (click-to-dictate,
+                    level bars, status, language chip); replaces the Tk overlay on macOS
+  export.py         <name>.json / .srt / .error.txt transcript files (atomic writes)
+  watch.py          watch folder: settled-file detection, skip already-exported files
   web/              index.html, app.js, style.css, recorder-worklet.js (no framework)
 src/whisper_key/main.py      +5 lines: `whisper.backend: santa` selects the bridge
 tests/test_santa.py          40 focused tests (fake model; plumbing, not accuracy)
@@ -51,7 +56,8 @@ pyproject.toml               `santa`, `santa-dictation` scripts; `santa-gpu` ext
 * **Service interface for Phase 2**: `service.py` + the JSON API in `server.py`.
 
 ### Engine routing (per job)
-1. Decode + validate (size ≤ 200 MB, duration ≤ 60 min, silence → clear error).
+1. Uploads are streamed to a private temp file (never held in memory); decode +
+   validate (size/duration limits from Settings, silence → clear error).
 2. If *Engine = Automatic*, model = Large-v3 Turbo and the Metal path is ready:
    clips ≤ 28 s go straight to whisper.cpp; longer audio is split with Silero
    VAD at pauses into ≤ 28 s pieces (language detected once on the first piece

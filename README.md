@@ -1,3 +1,26 @@
+# 🎅 Santa — private multilingual dictation for macOS
+
+**Santa** is a personal fork of [Whisper Local](https://github.com/drajb/whisper-local)
+(MIT, © Rohit Burani — original README preserved below) that adds:
+
+- **Five language modes** — English, Hindi, Arabic (RTL), Bengali and **Hinglish**
+  (mixed script or romanized), never silently translated
+- **Floating assistant** — an always-on-top pill: click (or hold Fn+Ctrl), speak,
+  and the text is pasted into whatever app you're typing in
+- **Santa window** — a local browser app (127.0.0.1 only) for recording, audio/video
+  files, editing, copy and UTF-8 export
+- **Apple GPU fast path** — whisper.cpp on Metal (≈1 s for short clips, ≈5–6 % of
+  length for long recordings) with automatic CPU fallback on any doubtful output
+- **Transcript hand-off** — JSON + SRT with timestamps and a watch folder, used by
+  the "Hiring Right" interview-scoring workflow
+- Fully offline after model download; no telemetry, no cloud
+
+**Start here:** [`docs/santa/README.md`](docs/santa/README.md) · Install:
+`santa-app/Install Santa.command` · Guide: [`docs/santa/USER_GUIDE.md`](docs/santa/USER_GUIDE.md) ·
+Measurements: [`docs/santa/EVALUATION.md`](docs/santa/EVALUATION.md)
+
+---
+
 <div align="center">
 
 # Whisper Local

@@ -26,6 +26,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 BASE_URL = os.environ.get('SANTA_URL', 'http://127.0.0.1:8765')
+LAST_RESULT = None      # last successful result, shown by the floating pill
 _HEADERS = {'X-Santa': '1'}
 
 
@@ -131,6 +132,8 @@ class SantaHttpEngine:
                 print(f"   ✗ Santa: {job['error']['message']}")
             return None
         result = job['result']
+        global LAST_RESULT
+        LAST_RESULT = result
         print(f"   ✓ Santa: {result['audio_seconds']:.1f}s → {len(result['text'])} chars in "
               f"{time.time() - started:.1f}s ({result.get('engine')}, {result['language_mode']})")
         return result['text'] or None

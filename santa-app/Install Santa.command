@@ -51,6 +51,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleExecutable</key><string>Santa</string>
   <key>CFBundleIconFile</key><string>Santa</string>
   <key>LSUIElement</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Santa listens only while you record, and transcribes on this Mac.</string>
 </dict></plist>
 PLIST
 cat > "$APP/Contents/MacOS/Santa" <<'LAUNCH'
@@ -73,5 +74,34 @@ if [ -f "$REPO/santa-app/icon-1024.png" ]; then
 fi
 touch "$APP"
 echo "Created $APP"
+
+# 5) ~/Applications/Santa Assistant.app — the floating always-on-top dictation
+#    pill (click or hold Fn+Ctrl, text is pasted into the app you are using).
+ASSIST="$HOME/Applications/Santa Assistant.app"
+mkdir -p "$ASSIST/Contents/MacOS" "$ASSIST/Contents/Resources"
+cat > "$ASSIST/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleName</key><string>Santa Assistant</string>
+  <key>CFBundleDisplayName</key><string>Santa Assistant</string>
+  <key>CFBundleIdentifier</key><string>local.santa.assistant</string>
+  <key>CFBundleVersion</key><string>0.2.0</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleExecutable</key><string>SantaAssistant</string>
+  <key>CFBundleIconFile</key><string>Santa</string>
+  <key>LSUIElement</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>Santa listens only while you dictate, and transcribes on this Mac.</string>
+</dict></plist>
+PLIST
+cat > "$ASSIST/Contents/MacOS/SantaAssistant" <<'LAUNCH'
+#!/bin/bash
+SUPPORT="$HOME/Library/Application Support/Santa"
+exec "$SUPPORT/venv/bin/santa-dictation" >> "$SUPPORT/logs/assistant.log" 2>&1 < /dev/null
+LAUNCH
+chmod +x "$ASSIST/Contents/MacOS/SantaAssistant"
+[ -f "$APP/Contents/Resources/Santa.icns" ] && cp "$APP/Contents/Resources/Santa.icns" "$ASSIST/Contents/Resources/Santa.icns"
+touch "$ASSIST"
+echo "Created $ASSIST"
 echo "== INSTALL OK $(date)"
 echo "Start Santa from ~/Applications/Santa.app (Spotlight: 'Santa') or 'Santa.command'."
