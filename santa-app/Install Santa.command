@@ -16,6 +16,11 @@ exec > >(tee "$LOG") 2>&1
 echo "== Santa install  $(date)"
 echo "repo: $REPO"
 
+# 0) A folder unzipped from a download is "quarantined" by macOS, which blocks
+#    every script in it. You already allowed this installer, so clear the flag
+#    for the rest of the Santa folder (only this folder, nothing else).
+xattr -dr com.apple.quarantine "$REPO" 2>/dev/null || true
+
 # 1) uv (small, self-contained Python manager from Astral) into ~/.local/bin
 export PATH="$HOME/.local/bin:$PATH"
 if ! command -v uv >/dev/null 2>&1; then
@@ -106,4 +111,11 @@ chmod +x "$ASSIST/Contents/MacOS/SantaAssistant"
 touch "$ASSIST"
 echo "Created $ASSIST"
 echo "== INSTALL OK $(date)"
-echo "Start Santa from ~/Applications/Santa.app (Spotlight: 'Santa') or 'Santa.command'."
+echo
+echo "Santa is installed. Opening it now — the first start downloads the speech"
+echo "models (about 2 GB, once), so give it a few minutes."
+echo "  * Santa window:      Spotlight (⌘ Space) › Santa"
+echo "  * Floating capsule:  Spotlight › Santa Assistant (asks for Microphone,"
+echo "                       Accessibility and Input Monitoring the first time)"
+echo "You can close this Terminal window."
+open "$APP" || true

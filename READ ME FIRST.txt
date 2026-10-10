@@ -1,0 +1,96 @@
+SANTA — private dictation and transcription for your Mac
+=======================================================
+
+Santa turns speech into text on your own Mac. Nothing is sent to the cloud:
+no account, no subscription, no internet needed once it is installed.
+Languages: English, Hindi, Arabic, Hinglish, Bengali (plus auto-detect).
+
+
+WHAT YOU NEED
+-------------
+* A Mac. Best on Apple Silicon (M1–M5); Intel Macs work but are slower.
+  Tested on macOS 26.
+* About 5 GB of free disk space.
+* Internet during installation and the first start (it downloads Python and
+  the speech models, about 2 GB, once).
+* No administrator password: everything installs in your own user account.
+
+
+INSTALL (10–15 minutes, mostly downloading)
+-------------------------------------------
+1. Unzip this file and move the "Santa" folder to Documents.
+   Keep it there; Santa runs from this folder.
+
+2. Double-click "Install Santa.command".
+   macOS will probably say it "could not verify" the file. That is normal for
+   anything downloaded that isn't from the App Store. To allow it:
+     System Settings › Privacy & Security › scroll down ›
+     "Install Santa.command was blocked" › Open Anyway › Open.
+   (Or open Terminal and drag "Install Santa.command" into it, then press Return.)
+
+3. A Terminal window shows the progress. When it says "INSTALL OK", Santa
+   opens in your browser. The first start downloads the speech models, so
+   wait until the status at the top says the model is ready.
+
+That's it. You can close the Terminal window.
+
+
+USING SANTA
+-----------
+Two ways, same engine:
+
+1) THE SANTA WINDOW   (Spotlight ⌘ Space › "Santa")
+   * Pick the language you will speak, press Start recording, speak, press
+     Stop. The text appears and you can edit, copy, read aloud or export it.
+   * Output: "As spoken", or translated to English or Arabic (offline; the
+     original is always kept).
+   * Files & links: drag in audio/video files (interviews, meetings), paste a
+     file path, or paste a link (YouTube, Loom, a public Google Drive file).
+     Tick "Separate speakers" to get "Speaker 1 / Speaker 2" transcripts.
+   * Settings › Words Santa should know: names and terms it should spell right.
+   * Settings › Transcript files & watch folder: save .json + .srt transcripts
+     automatically, or watch a folder and transcribe every new video dropped
+     into it.
+
+2) THE FLOATING CAPSULE   (Spotlight › "Santa Assistant")
+   A small bar that floats above all windows. Click into any text box (email,
+   WhatsApp, Word…), then click the capsule's mic, speak, click again: the text
+   is typed where your cursor is.
+   Or hold fn + Control while speaking and let go. A quick tap of fn + Control
+   keeps it listening until you tap fn again.
+   Right-click the capsule for language, output, start at login, restart, quit.
+
+   The first time, macOS asks for three permissions. Allow all three for
+   "Santa Assistant" (System Settings › Privacy & Security):
+     Microphone · Accessibility (to type the text) · Input Monitoring (fn key)
+   Then right-click the capsule › Restart Santa Assistant.
+
+The first time you use translation or speaker separation, Santa downloads
+those models (about 100 MB per language pair, 35 MB for speakers), once.
+
+
+PRIVACY
+-------
+* Audio is processed on this Mac and deleted straight after; it is never
+  stored. Transcript history is OFF unless you switch it on.
+* Saved voices (for recognising people in interviews) stay on this Mac and
+  can be deleted in Settings. Ask people before saving theirs.
+
+
+IPHONE (not needed now — kept for later)
+---------------------------------------
+Santa can also be used from an iPhone on the same Wi-Fi. It is OFF by
+default and nothing is reachable from your phone or network until you switch
+it on in Settings › iPhone access. The steps are in
+docs/santa/USER_GUIDE.md, section 9.
+
+
+IF SOMETHING GOES WRONG
+-----------------------
+* Full guide: docs/santa/USER_GUIDE.md (troubleshooting in section 8).
+* Logs (they never contain your words): ~/Library/Application Support/Santa/logs
+* To remove Santa: double-click santa-app/Uninstall Santa.command. It asks
+  before deleting each part, then you can delete this folder.
+
+Santa is built on Whisper Local (MIT licence, see LICENSE) and OpenAI's
+Whisper speech models.

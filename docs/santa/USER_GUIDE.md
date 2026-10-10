@@ -123,8 +123,8 @@ The **Files & links** panel in the Santa window takes:
   drop the file in. Links to your own network are refused.
 * Each file gets its own line with progress and *Cancel*. When it finishes, the
   text is added to the transcript under a `── file name ──` heading.
-* Limits (Settings): 200 MB / 60 minutes by default; you raised them to
-  2000 MB / 120 minutes for interview videos.
+* Limits (Settings › Privacy): 200 MB / 60 minutes by default; raise them to
+  2000 MB / 120 minutes for long interview videos.
 
 ## 4a. Speakers (interviews)
 Tick **Separate speakers** in the Files & links panel (or Settings › Speakers ›
