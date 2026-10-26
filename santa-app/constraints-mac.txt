@@ -47,7 +47,7 @@ requests==2.34.2
 ruamel-yaml==0.19.1
 segno==1.6.6
 sentencepiece==0.2.2
-setuptools==84.0.0
+setuptools==84.2.1
 sherpa-onnx==1.13.8
 sherpa-onnx-core==1.13.8
 six==1.17.0
