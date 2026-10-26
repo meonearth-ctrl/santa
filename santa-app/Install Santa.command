@@ -39,7 +39,11 @@ fi
 # 3) Install the repo (editable) + test runner
 # [santa-gpu] adds whisper.cpp (Metal) for fast short clips on Apple Silicon.
 # [santa-extras] adds speaker separation, translation, iPhone access and links.
-uv pip install --python "$VENV/bin/python" -e "$REPO[santa-gpu,santa-extras]" pytest
+# constraints-mac.txt pins the library versions Santa was tested with, so a new
+# install doesn't pick up a just-released library that breaks it.
+CONSTRAINTS=()
+[ -f "$REPO/santa-app/constraints-mac.txt" ] && CONSTRAINTS=(-c "$REPO/santa-app/constraints-mac.txt")
+uv pip install --python "$VENV/bin/python" ${CONSTRAINTS[@]+"${CONSTRAINTS[@]}"} -e "$REPO[santa-gpu,santa-extras]" pytest
 "$VENV/bin/python" -c "import faster_whisper, ctranslate2; print('faster-whisper', faster_whisper.__version__, '/ ctranslate2', ctranslate2.__version__)"
 
 # 4) ~/Applications/Santa.app — double-clickable, no Terminal window
