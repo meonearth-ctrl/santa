@@ -94,6 +94,22 @@ Extra dependencies: `pip install -e .[santa-extras]` (sherpa-onnx, sentencepiece
 cryptography, segno, yt-dlp). Check everything on the Mac against the running
 server with `python santa-app/dev/extras_check.py [translation|speakers|phone]`.
 
+## Added 2026-10-26: Wispr-Flow-style clean-up, grammar, all languages, no limits
+
+| Feature | Where | How |
+|---|---|---|
+| Clean-up levels `off` / `clean` / `grammar` (setting `polish`, replaces the old `cleanup` flag) | `santa/polish.py`, `service._polish` | Runs after recognition on the native-script text; Hinglish romanization is redone from the polished wording. Raw text is never touched. |
+| Rule-based clean (any script) | `polish.remove_hesitations`, `polish.clean_text` | Hesitation sounds per script (Latin, Devanagari, Bengali, Arabic) matched with whitespace/punctuation look-arounds, because `\b` breaks inside Indic words. Stutter + self-correction rules (`dictation_cleanup`) only for English: Hindi/Bengali reduplication and French "nous nous" are grammatical. |
+| Grammar (any language) | `polish.OllamaPolisher` | Local Ollama `/api/chat`, `temperature 0`, text wrapped in `<transcript>` tags, system prompt forbids translating, answering or changing script. Text over 1,500 characters goes in sentence-aligned pieces, so there is no length limit. |
+| Guards | `polish.guard_reason` | The answer is discarded (→ `clean` + a note in `result.polish.note`) when it is empty, looks like a chat reply, grows > 1.6× or shrinks < 0.4×, loses a script that was ≥ 15 % of the input, or introduces a new one. |
+| When it runs | `service._wants_polish` | Dictation (`recording`, `api`) always; files/links only with `polish_files`; never `watch` (Hiring Right) or speaker-separated results. |
+| Every Whisper language | `languages._MORE_LANGUAGES` | 95 extra modes = faster-whisper's `_LANGUAGE_CODES` (a test pins this). Expected script for warnings where unambiguous; RTL for Arabic-script, Hebrew and Yiddish. `textproc` knows 24 scripts. Web picker uses two optgroups; the capsule has a *More languages* submenu. |
+| No limits | `settings.upload_limit_bytes`, `duration_limit_seconds`, `dictation.py` | `0` = unlimited upload size / audio length; santa-dictation lifts Whisper Local's 900 s recording cap once; the bridge timeout grows with recording length. |
+
+Not verified here: output quality of a real Ollama model (the build container
+cannot download one). Tests use a fake Ollama HTTP server for the protocol,
+splitting and guards. Check on the Mac with `ollama pull gemma3:4b`.
+
 ## Hardware findings (Apple M5, 16 GB, macOS 26.6)
 * CTranslate2 has no Metal backend → faster-whisper runs on CPU (int8).
   CT2's default uses 4 threads; 8 measured ~20 % faster → Santa uses cores−2 (max 8).

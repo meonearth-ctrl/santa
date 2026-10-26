@@ -85,6 +85,7 @@ Both use the same engine and the **same language setting**. A third way, your
 | Bengali | Bengali script (বাংলা) |
 | Hinglish | Mixed: Hindi in Devanagari, English words in Latin — or **Romanized** (all Latin: "aaj ki meeting mein…") |
 | Auto-detect | Whatever Whisper hears |
+| **More languages** | Every other language Whisper knows (about 95 more: Urdu, Tamil, Telugu, French, Spanish, Chinese, Hebrew, Russian…), in the second group of the language list and in the capsule's *More languages* submenu. Arabic-script and Hebrew languages are shown right-to-left. |
 
 Tips
 * **Choose the language when you know it.** It is more reliable than
@@ -97,6 +98,35 @@ Tips
   Settings › **Words Santa should know** (e.g. `Kout Food Group, Salmiya, ATOSS`),
   or right-click the capsule › *Add words Santa should know…*. It is a hint to the
   model, so it makes those spellings more likely, not certain.
+
+### Clean-up and grammar (like Wispr Flow)
+Settings › **Clean-up & grammar** › *Text clean-up* decides how much Santa tidies
+what you said. Whatever you pick, the unchanged Whisper text stays under *Last
+result details › Raw transcript* and can be inserted instead.
+
+| Level | What it does | Speed |
+|---|---|---|
+| **Grammar** (default) | Removes fillers and false starts, keeps only your corrected version when you change your mind ("at 2, no wait, 3"), fixes grammar, punctuation and capitals — in any language, without translating and without changing the script. | ~1–2 s extra on Apple Silicon |
+| **Clean** | Removes "um", "uh", "उम्म", "اممم", "উম"…, tidies spacing. For English also "I I think" → "I think" and "at 2, actually 3" → "at 3". | instant |
+| **Off** | Exactly what Whisper wrote. | — |
+
+* Grammar runs on this Mac with **Ollama** (free, ollama.com). Install it, open it
+  once, then in Terminal run `ollama pull gemma3:4b` (about 3.3 GB, once). The
+  installer does the download for you if Ollama is already installed. The
+  settings screen shows whether Ollama and the model are ready.
+* If Ollama isn't running, Santa uses *Clean* instead and says so in the result
+  details — dictation never fails because of it.
+* Santa only uses the model's answer if it passes checks: same script(s) as you
+  spoke (so Hindi can't turn into English), similar length, and not a chatbot-
+  style reply. Otherwise you get the *Clean* text.
+* Repetition that is normal grammar (धीरे धीरे, बार बार, আস্তে আস্তে) is kept.
+* Dictation is always cleaned. Uploaded files and links only when *Also clean up
+  uploaded files and links* is on. Watch-folder (Hiring Right) and
+  speaker-separated transcripts are never changed.
+* Another model? Type any Ollama model name (e.g. `qwen2.5:7b`, `llama3.1:8b`).
+  Bigger models are better at Hindi, Arabic and Bengali grammar but slower.
+* There is **no word limit** — not per dictation, day or month. Long text is
+  corrected in pieces.
 
 ### Output: as spoken, English or Arabic
 Next to the language there is an **Output** choice (also in the capsule menu):
@@ -166,8 +196,11 @@ Pick the number of people if you know it, otherwise *auto*.
   fallback if you ever see odd output.
 * **Hinglish strategy** — leave on *Hindi-biased, mixed-script prompt*
   (it measured best); the others are there for experiments.
-* **Light cleanup** — only tidies spaces (and capitalises English); never
-  changes Hindi, Arabic or Bengali text. The raw text is always available.
+* **Clean-up & grammar** — *Grammar* / *Clean* / *Off*, the Ollama model name,
+  and whether files are cleaned too (see *Clean-up and grammar* in section 3).
+* **Max upload size / Max audio length** — `0` means no limit. Long audio needs
+  about 4 MB of memory per minute while it is transcribed. Hotkey dictation has
+  no length limit either.
 * **History** — off by default. If you switch it on, transcripts (never audio)
   are kept on this Mac; a *History* button appears where you can insert or
   delete entries, or *Delete all*.
@@ -202,6 +235,9 @@ Settings › *Transcript files & watch folder*:
 | iPhone: "Safari can't open the page" | Mac asleep / Santa closed / not on the same Wi-Fi; or iPhone access is off |
 | iPhone: certificate warning or no microphone | Step 2 not finished: install the profile **and** switch it on in Certificate Trust Settings |
 | iPhone: "This phone is not paired" | Press *Show pairing code* on the Mac and type the new code |
+| "Grammar correction unavailable: Ollama is not running" | Open the Ollama app (menu-bar llama icon), or install it from ollama.com |
+| "…the grammar model … is not installed" | In Terminal: `ollama pull gemma3:4b` (or the model named in Settings) |
+| "Grammar correction not used: it changed the … script" | The model tried to translate or rewrite; Santa kept the *Clean* text. A bigger model (e.g. `qwen2.5:7b`) is more reliable for Hindi/Arabic/Bengali |
 | Translation says it couldn't download | Internet is needed once per language pair |
 | Read aloud says no voice installed | Add a voice for that language (see section 5) |
 

@@ -76,8 +76,7 @@ async function loadConfig() {
   ui.client = ui.config.client;
   document.body.classList.toggle('is-phone', ui.client === 'phone');
   const langSel = $('languageSel');
-  langSel.innerHTML = '';
-  for (const l of ui.config.languages) langSel.add(new Option(l.label, l.key));
+  fillLanguageSelect(langSel);
   langSel.value = ui.settings.language;
   const outSel = $('outputSel');
   outSel.innerHTML = '';
@@ -103,9 +102,7 @@ async function loadConfig() {
   }
   modelSel.value = ui.settings.model;
   updateModelNote();
-  const watchLang = $('watchLangSel');
-  watchLang.innerHTML = '';
-  for (const l of ui.config.languages) watchLang.add(new Option(l.label, l.key));
+  fillLanguageSelect($('watchLangSel'));
   const stratSel = $('strategySel');
   stratSel.innerHTML = '';
   for (const s of ui.config.hinglish_strategies) stratSel.add(new Option(s.label, s.key));
@@ -121,6 +118,34 @@ function updateModelNote() {
   $('modelNote').textContent = m ? `${m.note} Download ≈ ${formatMB(m.download_mb)} (once), memory ≈ ${m.ram_gb} GB. Your Mac has ${ui.config.ram_gb} GB.` : '';
 }
 
+// Santa's tuned languages first, then every other Whisper language A–Z.
+function fillLanguageSelect(sel) {
+  sel.innerHTML = '';
+  const groups = [['santa', 'Santa languages'], ['more', 'More languages']];
+  for (const [key, title] of groups) {
+    const og = document.createElement('optgroup');
+    og.label = title;
+    const langs = ui.config.languages.filter((l) => (l.group || 'santa') === key);
+    if (key === 'more') langs.sort((a, b) => a.label.localeCompare(b.label));
+    for (const l of langs) og.append(new Option(l.label, l.key));
+    if (langs.length) sel.append(og);
+  }
+}
+
+// One line under the grammar setting: is the local model ready?
+function renderPolishStatus(p) {
+  const level = $('polishSel').value;
+  $('polishModelField').hidden = level !== 'grammar';
+  const el = $('polishStatus');
+  if (level !== 'grammar') { el.textContent = ''; return; }
+  const model = $('polishModelInput').value.trim() || 'gemma3:4b';
+  const o = p && p.ollama;
+  if (!o || p.model !== model) { el.textContent = `Save to check whether ${model} is ready.`; return; }
+  if (!o.running) el.textContent = '⚠ Ollama is not running. Install it from ollama.com, open it, then run: ollama pull ' + model;
+  else if (!o.model_installed) el.textContent = `⚠ Ollama is running but ${model} is not installed. In Terminal run: ollama pull ${model}`;
+  else el.textContent = `✓ Ollama is running and ${model} is installed.`;
+}
+
 function fillSettingsForm() {
   const s = ui.settings;
   $('promptInput').value = s.user_prompt || '';
@@ -130,7 +155,10 @@ function fillSettingsForm() {
   $('engineSel').value = s.engine;
   $('engineField').hidden = !ui.config.accelerator_available;
   $('strategySel').value = s.hinglish_strategy;
-  $('cleanupChk').checked = s.cleanup;
+  $('polishSel').value = s.polish;
+  $('polishModelInput').value = s.polish_model;
+  $('polishFilesChk').checked = !!s.polish_files;
+  renderPolishStatus(ui.polishStatus);
   $('vadChk').checked = s.vad_filter;
   $('beamSel').value = String(s.beam_size);
   $('historyChk').checked = s.history_enabled;
@@ -172,6 +200,8 @@ async function pollStatus() {
   try {
     const st = await api('GET', '/api/status');
     renderModelStatus(st.model, st.accelerator);
+    ui.polishStatus = st.polish;
+    if (ui.client !== 'phone' && $('settingsDlg').open) renderPolishStatus(st.polish);
     if (ui.client === 'phone') $('modelPill').textContent = st.model.state === 'ready' ? 'Connected to your Mac' : $('modelPill').textContent;
     if (st.watch && st.watch.state !== 'off') $('modelPill').textContent += ' · ' + st.watch.message;
     for (const extra of [st.speakers, st.translation]) {
@@ -192,7 +222,8 @@ function syncLanguageUI() {
   const lang = $('languageSel').value;
   $('hinglishOutField').hidden = lang !== 'hinglish';
   $('autoHint').hidden = lang !== 'auto';
-  const tag = { en: 'en', hi: 'hi', ar: 'ar', bn: 'bn', hinglish: 'hi' }[lang];
+  // Whisper codes are ISO 639 codes except Javanese ('jw' -> 'jv').
+  const tag = lang === 'auto' ? null : ({ hinglish: 'hi', jw: 'jv' }[lang] || lang);
   if (tag) $('transcript').setAttribute('lang', tag); else $('transcript').removeAttribute('lang');
 }
 
@@ -383,7 +414,7 @@ async function submitAudio(blob, filename, source) {
 
 const JOB_LABEL = {
   queued: 'Waiting in queue…', downloading: 'Downloading…', decoding: 'Reading audio…', waiting_model: 'Waiting for model…',
-  transcribing: 'Transcribing…', speakers: 'Separating speakers…', translating: 'Translating…',
+  transcribing: 'Transcribing…', polishing: 'Cleaning up…', speakers: 'Separating speakers…', translating: 'Translating…',
 };
 
 async function pollJob(id) {
@@ -419,7 +450,7 @@ function onResult(r, jobId) {
   } else {
     insertText(r.text);
     setState('complete');
-    const notes = [r.script_warning, r.translation_error, r.speaker_error].filter(Boolean);
+    const notes = [r.script_warning, r.translation_error, r.speaker_error, r.polish && r.polish.note].filter(Boolean);
     showAlert(notes.join(' '), 'warn');
   }
   renderResultDetails(r, jobId);
@@ -438,6 +469,7 @@ function renderResultDetails(r, jobId) {
     ['Transcription time', r.transcribe_seconds + ' s'],
     ['Model', r.model],
     ['Engine', r.engine || '—'],
+    ['Clean-up', r.polish ? `${{ grammar: 'Grammar', clean: 'Clean', off: 'Off' }[r.polish.level]} · ${r.polish.engine || '—'}${r.polish.seconds ? ` · ${r.polish.seconds} s` : ''}` : (ui.settings.polish === 'off' ? 'Off' : 'Spacing only')],
   ];
   if (r.source_name && r.source_name !== 'recording.wav') rows.unshift(['File', r.source_name]);
   if (ui.client === 'mac') rows.push(['Saved files', r.exported ? r.exported.join('\n') : (r.export_error || '—')]);
@@ -491,7 +523,7 @@ function fileOptions() {
 }
 
 async function addFiles(files) {
-  const maxBytes = ui.settings.max_upload_mb * 1e6;
+  const maxBytes = ui.settings.max_upload_mb ? ui.settings.max_upload_mb * 1e6 : Infinity;   // 0 = no limit
   for (const f of files) {
     const li = fileRow(f.name, 'Uploading…');
     if (f.size > maxBytes) { markRow(li, 'error', `Too big: ${(f.size / 1e6).toFixed(0)} MB (limit ${ui.settings.max_upload_mb} MB, Settings)`); continue; }
@@ -857,6 +889,8 @@ function wire() {
   $('insertRomanBtn').onclick = () => lastResult && lastResult.romanized_text && insertText(lastResult.romanized_text);
   $('settingsBtn').onclick = () => openSettings(false);
   $('modelSel').onchange = updateModelNote;
+  $('polishSel').onchange = () => renderPolishStatus(ui.polishStatus);
+  $('polishModelInput').oninput = () => renderPolishStatus(ui.polishStatus);
   $('loadModelBtn').onclick = async () => {
     try { await api('POST', '/api/models/load', { model: $('modelSel').value }); ui.settings.model = $('modelSel').value; clearTimeout(statusTimer); pollStatus(); }
     catch (e) { showAlert(e.message); }
@@ -877,7 +911,8 @@ function wire() {
       } else {
         await saveSettings(Object.assign(common, {
           model: $('modelSel').value, engine: $('engineSel').value, hinglish_strategy: $('strategySel').value,
-          cleanup: $('cleanupChk').checked, vad_filter: $('vadChk').checked,
+          polish: $('polishSel').value, polish_model: $('polishModelInput').value.trim() || 'gemma3:4b',
+          polish_files: $('polishFilesChk').checked, vad_filter: $('vadChk').checked,
           beam_size: Number($('beamSel').value),
           history_enabled: $('historyChk').checked,
           max_upload_mb: Number($('maxUploadInput').value), max_duration_min: Number($('maxDurInput').value),

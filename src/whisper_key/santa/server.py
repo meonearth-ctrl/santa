@@ -32,6 +32,7 @@ from .audio_input import AudioInputError, check_upload, new_temp_path, remove_te
 from .languages import language_modes_for_ui, hinglish_strategies_for_ui, UnknownLanguageMode
 from .models import catalog_for_ui, total_ram_gb, CATALOG
 from .service import TranscriptionService, QueueFull
+from .settings import upload_limit_bytes
 from .translate import OUTPUT_LANGUAGES
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ _MODEL_SETTINGS = {'model', 'compute_type', 'cpu_threads', 'engine'}
 # What a paired phone may change (nothing that touches the Mac's files or models).
 _PHONE_SETTINGS = {'language', 'hinglish_output', 'output_language', 'user_prompt',
                    'diarize_files', 'num_speakers'}
-_PHONE_SAFE_SETTINGS = _PHONE_SETTINGS | {'model', 'engine', 'history_enabled', 'cleanup'}
+_PHONE_SAFE_SETTINGS = _PHONE_SETTINGS | {'model', 'engine', 'history_enabled', 'polish'}
 
 _CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
         "media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; "
@@ -338,7 +339,7 @@ class SantaHandler(BaseHTTPRequestHandler):
     # ── Transcription ────────────────────────────────────────────────────
     def _transcribe(self, query: dict, device=None):
         svc = self.server.service
-        limit = svc.settings.get()['max_upload_mb'] * 1_000_000
+        limit = upload_limit_bytes(svc.settings.get())
         try:
             length = int(self.headers.get('Content-Length', '0'))
         except ValueError:

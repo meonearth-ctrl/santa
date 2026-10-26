@@ -9,8 +9,10 @@
 #   * while recording  the glyph turns into a red dot and the tag into level bars
 #   * afterwards       a brief green check (pasted) or amber mark (nothing / error);
 #                      hover the capsule for the reason
-#   * right-click      language, output (as spoken / English / Arabic), Hinglish
-#                      output, Add words…, Open Santa window, login/restart/quit
+#   * right-click      language (the five Santa languages + a "More languages"
+#                      submenu with every Whisper language), output (as spoken /
+#                      English / Arabic), Hinglish output, Add words…, Open Santa
+#                      window, login/restart/quit
 #   * drag             move it; the position is remembered
 #
 # It is a *non-activating* NSPanel: clicking it never takes keyboard focus away
@@ -42,6 +44,8 @@ from AppKit import (NSBackingStoreBuffered, NSBezierPath, NSColor, NSEvent, NSFo
                     NSForegroundColorAttributeName, NSTrackingArea)
 from Foundation import NSAttributedString, NSMakeRect, NSObject, NSTimer
 
+from .languages import LANGUAGE_MODES
+
 logger = logging.getLogger(__name__)
 
 SANTA_URL = 'http://127.0.0.1:8765'
@@ -49,6 +53,15 @@ LANG_CYCLE = ['auto', 'en', 'hi', 'ar', 'hinglish', 'bn']
 LANG_CODE = {'auto': 'AUTO', 'en': 'EN', 'hi': 'HI', 'ar': 'AR', 'hinglish': 'HG', 'bn': 'BN'}
 LANG_NAME = {'auto': 'Auto-detect', 'en': 'English', 'hi': 'Hindi', 'ar': 'Arabic',
              'hinglish': 'Hinglish', 'bn': 'Bengali'}
+# Every other Whisper language, alphabetical, for the "More languages" submenu.
+MORE_LANGUAGES = sorted((m for m in LANGUAGE_MODES.values() if m.group == 'more'),
+                        key=lambda m: m.label)
+
+
+def language_label(code: str) -> str:
+    return LANG_NAME.get(code) or (LANGUAGE_MODES[code].label if code in LANGUAGE_MODES else code)
+
+
 # Output script shown after the arrow: what the text will be written in.
 OUT_SCRIPT = {'en': 'Aa', 'hi': 'अ', 'ar': 'ع', 'bn': 'অ'}
 
@@ -427,6 +440,17 @@ class SantaPill:
 
         for code in LANG_CYCLE:
             add(LANG_NAME[code], 'chooseLanguage:', code, checked=(code == self.language))
+        more_menu = NSMenu.alloc().initWithTitle_('More languages')
+        for mode in MORE_LANGUAGES:
+            add(mode.label, 'chooseLanguage:', mode.key, checked=(mode.key == self.language),
+                parent=more_menu)
+        chosen_more = self.language not in LANG_CYCLE and self.language in LANGUAGE_MODES
+        more_item = NSMenuItem.alloc().initWithTitle_action_keyEquivalent_(
+            f'More languages ({language_label(self.language)})' if chosen_more else 'More languages',
+            None, '')
+        more_item.setState_(1 if chosen_more else 0)
+        more_item.setSubmenu_(more_menu)
+        menu.addItem_(more_item)
         menu.addItem_(NSMenuItem.separatorItem())
         for value, title in (('same', 'Output: as spoken'), ('en', 'Output: English (translate)'),
                              ('ar', 'Output: Arabic (translate)')):
@@ -555,7 +579,7 @@ class SantaPill:
         alpha = self.panel.alphaValue()
         if abs(alpha - target_alpha) > 0.01:
             self.panel.setAlphaValue_(alpha + (target_alpha - alpha) * 0.3)
-        tip = self.reason if self.reason else f'Santa — {LANG_NAME.get(self.language, self.language)}. ' \
+        tip = self.reason if self.reason else f'Santa — {language_label(self.language)}. ' \
                                               'Click mic or hold fn⌃ to dictate.'
         if self.view.toolTip() != tip:
             self.view.setToolTip_(tip)

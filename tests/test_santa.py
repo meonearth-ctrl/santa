@@ -231,12 +231,31 @@ class FakeTranscriber:
                 'transcribe_seconds': 0.01}
 
 
-def make_service(home, transcriber):
+class FakePolisher:
+    """Stands in for the local Ollama grammar model so tests never reach a real
+    one (a developer machine may well be running Ollama). Returns `answer` if
+    given, else the text unchanged; records what it was asked."""
+    def __init__(self, answer=None, error=None):
+        self.answer, self.error, self.calls = answer, error, []
+
+    def polish(self, text, model, language_name='', vocabulary='', cancel_event=None):
+        self.calls.append({'text': text, 'model': model, 'language_name': language_name,
+                           'vocabulary': vocabulary})
+        if self.error is not None:
+            raise self.error
+        return text if self.answer is None else self.answer
+
+    def status(self, model):
+        return {'running': True, 'model': model, 'model_installed': True, 'installed_models': [model]}
+
+
+def make_service(home, transcriber, polisher=None):
     from whisper_key.santa.service import TranscriptionService
     from whisper_key.santa.history import HistoryStore
     settings = SettingsStore(home)
     return TranscriptionService(settings=settings, model_manager=FakeModelManager(),
-                                history=HistoryStore(home), transcribe_fn=transcriber)
+                                history=HistoryStore(home), transcribe_fn=transcriber,
+                                polisher=polisher or FakePolisher())
 
 
 @unittest.skipUnless(HAVE_FW, 'faster-whisper not installed (needed to decode audio)')
@@ -479,7 +498,9 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(status, 200)
         cfg = json.loads(self.req('GET', '/api/config')[1])
         self.assertEqual(cfg['settings']['language'], 'bn')
-        self.assertEqual({l['key'] for l in cfg['languages']}, {'auto', 'en', 'hi', 'ar', 'hinglish', 'bn'})
+        santa_group = {l['key'] for l in cfg['languages'] if l['group'] == 'santa'}
+        self.assertEqual(santa_group, {'auto', 'en', 'hi', 'ar', 'hinglish', 'bn'})
+        self.assertGreaterEqual(len(cfg['languages']), 100)      # every Whisper language too
         self.assertFalse(any(m['key'].endswith('.en') for m in cfg['models']))
 
 

@@ -8,10 +8,12 @@
 
 import json
 import os
+import re
 import sys
 import threading
 
 from .languages import LANGUAGE_MODES, HINGLISH_STRATEGIES, HINGLISH_OUTPUTS, DEFAULT_HINGLISH_STRATEGY
+from .polish import POLISH_LEVELS, DEFAULT_MODEL as DEFAULT_POLISH_MODEL
 
 DEFAULTS = {
     'model': 'large-v3-turbo',     # chosen from measurements (docs/santa/EVALUATION.md)
@@ -22,14 +24,21 @@ DEFAULTS = {
     'language': 'auto',
     'hinglish_strategy': DEFAULT_HINGLISH_STRATEGY,
     'hinglish_output': 'native',
-    'cleanup': True,               # tiny, script-aware tidy-up; raw text always kept
+    # Wispr-Flow-style clean-up of the text (the raw text is always kept too):
+    #   off      exactly what Whisper wrote
+    #   clean    instant rules: spacing, "um"/"उम्म" removed, English stutters
+    #   grammar  clean + grammar/punctuation/self-corrections by a local Ollama
+    #            model, any language; falls back to clean if Ollama isn't there
+    'polish': 'grammar',
+    'polish_model': DEFAULT_POLISH_MODEL,
+    'polish_files': False,         # also polish uploaded files/links (dictation always)
     'vad_filter': True,            # skip silence, reduces hallucinations
     'user_prompt': '',             # optional vocabulary/names hint for Whisper
     'history_enabled': False,      # transcripts are NOT kept unless you opt in
     'microphone_id': '',
     'microphone_label': '',
-    'max_upload_mb': 200,
-    'max_duration_min': 60,
+    'max_upload_mb': 200,          # 0 = no limit
+    'max_duration_min': 60,        # 0 = no limit
     'preload_model': True,
     # Transcript files for other tools (e.g. Hiring Right). Off unless set.
     'export_enabled': False,
@@ -57,12 +66,29 @@ _CHOICES = {
     'engine': {'auto', 'cpu'},
     'watch_language': set(LANGUAGE_MODES),
     'output_language': {'same', 'en', 'ar'},
+    'polish': set(POLISH_LEVELS),
+}
+# Free-text settings that must still look a certain way.
+_PATTERNS = {
+    'polish_model': re.compile(r'^[A-Za-z0-9][\w.\-:/]{0,99}$'),   # an Ollama model tag
 }
 _RANGES = {
     'cpu_threads': (0, 64), 'beam_size': (1, 10),
-    'max_upload_mb': (1, 2000), 'max_duration_min': (1, 240),
+    'max_upload_mb': (0, 100_000), 'max_duration_min': (0, 100_000),
     'num_speakers': (0, 10), 'phone_port': (1024, 65535),
 }
+
+
+# ── Size / length limits (0 in settings = no limit) ──────────────────────────
+NO_LIMIT = float('inf')
+
+
+def upload_limit_bytes(s: dict) -> float:
+    return s['max_upload_mb'] * 1_000_000 if s['max_upload_mb'] else NO_LIMIT
+
+
+def duration_limit_seconds(s: dict) -> float:
+    return s['max_duration_min'] * 60 if s['max_duration_min'] else NO_LIMIT
 
 
 def santa_home() -> str:
@@ -91,7 +117,8 @@ def validate(values: dict) -> dict:
                 lo, hi = _RANGES.get(key, (-10**9, 10**9))
                 clean[key] = int(min(max(value, lo), hi))
         elif isinstance(default, str):
-            if isinstance(value, str) and (key not in _CHOICES or value in _CHOICES[key]):
+            if (isinstance(value, str) and (key not in _CHOICES or value in _CHOICES[key])
+                    and (key not in _PATTERNS or _PATTERNS[key].match(value))):
                 clean[key] = value[:2000]
     return clean
 

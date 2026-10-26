@@ -201,8 +201,21 @@
       <p class="hint">How Whisper is steered for mixed Hindi–English speech. Default chosen from measurements; see the guide.</p>
     </fieldset>
     <fieldset class="mac-only">
+      <legend>Clean-up &amp; grammar</legend>
+      <label class="field"><span>Text clean-up</span>
+        <select id="polishSel">
+          <option value="grammar">Grammar — remove fillers, fix grammar &amp; punctuation (local AI, any language)</option>
+          <option value="clean">Clean — remove "um"/"उम्म", spacing; English stutters &amp; "actually 3" fixes (instant)</option>
+          <option value="off">Off — exactly what Whisper wrote</option>
+        </select></label>
+      <label class="field" id="polishModelField"><span>Grammar model (Ollama)</span>
+        <input type="text" id="polishModelInput" placeholder="gemma3:4b" spellcheck="false" autocomplete="off"></label>
+      <p class="hint" id="polishStatus"></p>
+      <label class="check"><input type="checkbox" id="polishFilesChk"> Also clean up uploaded files and links (dictation is always cleaned; watch-folder and speaker-separated transcripts never are)</label>
+      <p class="hint">Grammar correction runs on this Mac with <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> — your text never leaves the computer and there is no word limit. It never translates and keeps Hindi, Arabic and Bengali in their own script. If Ollama isn't running, Santa uses the instant clean-up instead. The raw transcript is always kept under Last result details.</p>
+    </fieldset>
+    <fieldset class="mac-only">
       <legend>Output</legend>
-      <label class="check"><input type="checkbox" id="cleanupChk"> Light cleanup (spacing; capitalisation for English only). The raw text is always kept.</label>
       <label class="check"><input type="checkbox" id="vadChk"> Skip silence (reduces made-up text on quiet audio)</label>
       <label class="field"><span>Accuracy vs speed (beam size)</span>
         <select id="beamSel"><option value="1">1 – fastest</option><option value="3">3</option><option value="5">5 – default</option><option value="8">8 – slowest</option></select></label>
@@ -210,8 +223,9 @@
     <fieldset class="mac-only">
       <legend>Privacy</legend>
       <label class="check"><input type="checkbox" id="historyChk"> Keep a transcript history on this computer (off by default; audio is never kept)</label>
-      <label class="field"><span>Max upload size (MB)</span><input type="number" id="maxUploadInput" min="1" max="2000"></label>
-      <label class="field"><span>Max audio length (minutes)</span><input type="number" id="maxDurInput" min="1" max="240"></label>
+      <label class="field"><span>Max upload size (MB, 0 = no limit)</span><input type="number" id="maxUploadInput" min="0"></label>
+      <label class="field"><span>Max audio length (minutes, 0 = no limit)</span><input type="number" id="maxDurInput" min="0"></label>
+      <p class="hint">Santa has no word limit. These only guard against dropping a huge file by mistake; long audio needs about 4 MB of memory per minute while it is transcribed.</p>
     </fieldset>
     <fieldset class="mac-only">
       <legend>Transcript files &amp; watch folder</legend>

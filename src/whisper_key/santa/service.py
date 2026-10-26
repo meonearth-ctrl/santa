@@ -5,7 +5,8 @@
 #   batch        watch-folder files and big uploads (long interview videos)
 # Each lane has one worker. The GPU path works in <= 28 s pieces and takes a
 # lock per piece, so a dictation clip waits at most one piece behind a batch job.
-# Optional steps after recognition: speaker separation (files only) and an
+# Optional steps after recognition: Wispr-Flow-style clean-up / grammar
+# correction (santa/polish.py), speaker separation (files only) and an
 # explicit, labelled translation to English/Arabic. It has no knowledge of HTTP,
 # browsers, hotkeys or the clipboard, so the Mac window, the iPhone page and the
 # floating assistant all call the same code.
@@ -21,13 +22,13 @@ from typing import Optional
 import os
 import re
 
-from . import audio_input, textproc, accel_cpp, export, links, speakers, translate
+from . import audio_input, textproc, accel_cpp, export, links, polish, speakers, translate
 from .history import HistoryStore
 from .languages import (LANGUAGE_MODES, WHISPER_LANGUAGE_NAMES, resolve_decode_params,
-                        UnknownLanguageMode)
+                        UnknownLanguageMode, language_name)
 from .models import ModelManager, ModelUnavailable, TranscriptionCancelled, run_transcription
 from .romanize import contains_devanagari, romanize_hinglish
-from .settings import SettingsStore
+from .settings import SettingsStore, upload_limit_bytes, duration_limit_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,8 @@ class Job:
 
 class TranscriptionService:
     def __init__(self, settings: SettingsStore = None, model_manager: ModelManager = None,
-                 history: HistoryStore = None, transcribe_fn=None, accelerator=None):
+                 history: HistoryStore = None, transcribe_fn=None, accelerator=None,
+                 polisher: polish.OllamaPolisher = None):
         self.settings = settings or SettingsStore()
         s = self.settings.get()
         self.models = model_manager or ModelManager(s['compute_type'], s['cpu_threads'])
@@ -84,6 +86,7 @@ class TranscriptionService:
         self.speakers = speakers.SpeakerEngine(self.settings.home)   # models download on first use
         self.voices = speakers.VoiceBook(self.settings.home)
         self.translator = translate.Translator(self.settings.home)
+        self.polisher = polisher or polish.OllamaPolisher()    # local Ollama, used only at level "grammar"
         self._jobs = {}
         self._jobs_lock = threading.Lock()
         self._queues = {'interactive': queue.Queue(), 'batch': queue.Queue()}
@@ -104,14 +107,24 @@ class TranscriptionService:
     def status(self) -> dict:
         with self._jobs_lock:
             active = [j.id for j in self._jobs.values() if j.state not in ('done', 'error', 'cancelled')]
-        accel = self.accel.get_status() if self._accel_wanted(self.settings.get()) else None
-        return {'model': self.models.get_status(), 'accelerator': accel, 'active_jobs': active}
+        s = self.settings.get()
+        accel = self.accel.get_status() if self._accel_wanted(s) else None
+        return {'model': self.models.get_status(), 'accelerator': accel, 'active_jobs': active,
+                'polish': self.polish_status(s)}
+
+    def polish_status(self, s: dict = None) -> dict:
+        """Clean-up level plus whether the local grammar model is ready to use."""
+        s = s or self.settings.get()
+        status = {'level': s['polish'], 'model': s['polish_model']}
+        if s['polish'] == 'grammar':
+            status['ollama'] = self.polisher.status(s['polish_model'])
+        return status
 
     def submit(self, audio_bytes: bytes, filename: str, language_mode: str,
                source: str = 'upload') -> Job:
         """Bytes in memory (recordings, API). Validates, stores a private temp file, enqueues."""
         s = self.settings.get()
-        ext = audio_input.check_upload(filename, len(audio_bytes or b''), s['max_upload_mb'] * 1_000_000)
+        ext = audio_input.check_upload(filename, len(audio_bytes or b''), upload_limit_bytes(s))
         self._check_language(language_mode)
         path = audio_input.write_temp(audio_bytes, ext)
         try:
@@ -228,10 +241,10 @@ class TranscriptionService:
             def download_progress(p):
                 job.progress = p
             job.audio_path, job.source_name = links.download_link(
-                job.url, s['max_upload_mb'] * 1_000_000, job.cancel_event, download_progress)
+                job.url, upload_limit_bytes(s), job.cancel_event, download_progress)
             job.progress = None
         job.state = 'decoding'
-        decoded = audio_input.decode_path(job.audio_path, s['max_duration_min'] * 60)
+        decoded = audio_input.decode_path(job.audio_path, duration_limit_seconds(s))
         self._release_audio(job)   # decoded samples are in memory; drop the temp file now
         if job.cancel_event.is_set():
             raise TranscriptionCancelled()
@@ -264,6 +277,8 @@ class TranscriptionService:
             raw.setdefault('engine', 'faster-whisper · CPU')
         model_key = s['model']
         result = self._build_result(job, raw, decoded.duration_s, model_key, params, s)
+        if self._wants_polish(job, s, opts) and result['text']:
+            self._polish(job, result, s)
         if opts['diarize'] and result['segments']:
             self._add_speakers(job, result, decoded.samples, opts, s)
         if opts['output_language'] != 'same' and result['text']:
@@ -284,6 +299,33 @@ class TranscriptionService:
         self._finish(job, 'done', result=result)
 
     # ── Optional steps after recognition ─────────────────────────────────
+    @staticmethod
+    def _wants_polish(job: Job, s: dict, opts: dict) -> bool:
+        """Dictation is always polished (unless the level is off). Files only when
+        asked to; watch-folder transcripts feed Hiring Right word for word, and
+        speaker-separated transcripts are rebuilt from the timed segments."""
+        if s['polish'] not in ('clean', 'grammar') or job.source == 'watch' or opts['diarize']:
+            return False
+        return job.source not in FILE_SOURCES or s['polish_files']
+
+    def _polish(self, job: Job, result: dict, s: dict) -> None:
+        """Remove fillers and fix grammar on the native-script text, then redo the
+        Hinglish romanization from the polished wording. Raw text is untouched."""
+        job.state, job.progress = 'polishing', None
+        spoken = 'hinglish' if job.language_mode == 'hinglish' else \
+            (result['whisper_language'] or result['detected_language'])
+        outcome = polish.polish_text(
+            result['native_text'], s['polish'], spoken,
+            language_name=language_name(job.language_mode, result['detected_language']),
+            model=s['polish_model'], vocabulary=s['user_prompt'], polisher=self.polisher,
+            cancel_event=job.cancel_event)
+        if job.cancel_event.is_set():
+            raise TranscriptionCancelled()
+        result['native_text'] = outcome.text
+        result['text'], result['romanized_text'] = _output_text(outcome.text, job, s)
+        result['rtl'] = textproc.is_rtl_dominant(result['text'])
+        result['polish'] = outcome.public()
+
     def _add_speakers(self, job: Job, result: dict, samples, opts: dict, s: dict) -> None:
         """Label who spoke each segment. A failure here never loses the
         transcript: it is reported next to it instead."""
@@ -316,7 +358,7 @@ class TranscriptionService:
         result['speakers'] = speaker_list
         result['speaker_seconds'] = round(time.time() - started, 2)
         dialogue = speakers.format_dialogue(labelled)
-        result['native_text'] = textproc.light_cleanup(dialogue) if s['cleanup'] else dialogue
+        result['native_text'] = textproc.light_cleanup(dialogue) if s['polish'] != 'off' else dialogue
         result['text'] = self._finish_text(dialogue, job, s)
         result['diarized'] = True
 
@@ -441,7 +483,7 @@ class TranscriptionService:
     @staticmethod
     def _finish_text(text: str, job: Job, s: dict) -> str:
         """Cleanup + Hinglish output script, applied to the final wording."""
-        text = textproc.light_cleanup(text) if s['cleanup'] else text
+        text = textproc.light_cleanup(text) if s['polish'] != 'off' else text
         if job.language_mode == 'hinglish' and s['hinglish_output'] == 'roman' and contains_devanagari(text):
             text = romanize_hinglish(text)
         return text
@@ -449,12 +491,8 @@ class TranscriptionService:
     @staticmethod
     def _build_result(job: Job, raw: dict, duration_s: float, model_key: str, params, s: dict) -> dict:
         raw_text = textproc.join_segments(seg['text'] for seg in raw['segments'])
-        native = textproc.light_cleanup(raw_text) if s['cleanup'] else raw_text
-        text, romanized = native, None
-        if job.language_mode == 'hinglish' and contains_devanagari(native):
-            romanized = romanize_hinglish(native)
-            if s['hinglish_output'] == 'roman':
-                text = romanized
+        native = textproc.light_cleanup(raw_text) if s['polish'] != 'off' else raw_text
+        text, romanized = _output_text(native, job, s)
         mode = LANGUAGE_MODES[job.language_mode]
         detected = raw.get('detected_language')
         return {
@@ -490,6 +528,15 @@ class TranscriptionService:
         with self._jobs_lock:
             for jid in [j.id for j in self._jobs.values() if j.finished and j.finished < cutoff]:
                 del self._jobs[jid]
+
+
+def _output_text(native: str, job: Job, s: dict) -> tuple:
+    """(text to deliver, romanized form or None) for native-script wording:
+    Hinglish is romanized when the user asked for Latin output."""
+    if job.language_mode == 'hinglish' and contains_devanagari(native):
+        romanized = romanize_hinglish(native)
+        return (romanized if s['hinglish_output'] == 'roman' else native), romanized
+    return native, None
 
 
 # ── Per-job options ──────────────────────────────────────────────────────────

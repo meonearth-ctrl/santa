@@ -21,6 +21,11 @@ def main() -> int:
     if cm.config.get('whisper', {}).get('backend') != 'santa':
         cm.update_user_setting('whisper', 'backend', 'santa')
         print('   ✓ Whisper Local dictation now uses Santa as its engine.')
+    # No word or length cap on dictation: lift Whisper Local's shipped 15-minute
+    # recording limit (900 s) once. A different value was set by hand; keep it.
+    if cm.config.get('audio', {}).get('max_duration') == 900:
+        cm.update_user_setting('audio', 'max_duration', 0)
+        print('   ✓ Dictation has no length limit (audio.max_duration: 0).')
 
     _main_thread_garbage_collection()
     _install_floating_pill()

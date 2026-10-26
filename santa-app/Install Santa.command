@@ -105,5 +105,22 @@ chmod +x "$ASSIST/Contents/MacOS/SantaAssistant"
 [ -f "$APP/Contents/Resources/Santa.icns" ] && cp "$APP/Contents/Resources/Santa.icns" "$ASSIST/Contents/Resources/Santa.icns"
 touch "$ASSIST"
 echo "Created $ASSIST"
+
+# 6) Grammar correction (optional): Santa's "Grammar" clean-up uses a local
+#    Ollama model. Ollama is a separate Mac app, so it is never installed from
+#    here; if it is already there, download the model now so the first dictation
+#    isn't slow. Failure here never fails the install (Santa falls back to the
+#    instant rule-based clean-up).
+POLISH_MODEL="gemma3:4b"
+OLLAMA_BIN="$(command -v ollama || true)"
+[ -z "$OLLAMA_BIN" ] && [ -x /Applications/Ollama.app/Contents/Resources/ollama ] && \
+  OLLAMA_BIN=/Applications/Ollama.app/Contents/Resources/ollama
+if [ -n "$OLLAMA_BIN" ]; then
+  echo "== Downloading the grammar model ($POLISH_MODEL, ~3.3 GB, once) with Ollama"
+  "$OLLAMA_BIN" pull "$POLISH_MODEL" || echo "   (could not download it now; open Ollama and run: ollama pull $POLISH_MODEL)"
+else
+  echo "== Optional: for grammar correction install Ollama from https://ollama.com (free, runs on this Mac),"
+  echo "   open it once, then run:  ollama pull $POLISH_MODEL"
+fi
 echo "== INSTALL OK $(date)"
 echo "Start Santa from ~/Applications/Santa.app (Spotlight: 'Santa') or 'Santa.command'."

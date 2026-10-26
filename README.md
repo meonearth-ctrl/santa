@@ -3,8 +3,13 @@
 **Santa** is a personal fork of [Whisper Local](https://github.com/drajb/whisper-local)
 (MIT, © Rohit Burani — original README preserved below) that adds:
 
-- **Five language modes** — English, Hindi, Arabic (RTL), Bengali and **Hinglish**
-  (mixed script or romanized), never silently translated
+- **Five tuned language modes** — English, Hindi, Arabic (RTL), Bengali and **Hinglish**
+  (mixed script or romanized), never silently translated — **plus every other
+  Whisper language** (~95 more) under "More languages"
+- **Clean-up & grammar like Wispr Flow** — fillers, false starts and "no wait,
+  3" self-corrections removed, grammar and punctuation fixed in any language by
+  a local Ollama model; instant rule-based fallback; raw text always kept
+- **No word limit** — no quotas, no per-dictation cap (0 = unlimited file size/length)
 - **Floating assistant** — an always-on-top pill: click (or hold Fn+Ctrl), speak,
   and the text is pasted into whatever app you're typing in
 - **Santa window** — a local browser app (127.0.0.1 only) for recording, audio/video

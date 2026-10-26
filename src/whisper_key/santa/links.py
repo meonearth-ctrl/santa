@@ -160,7 +160,8 @@ def _download_page(url, work, max_bytes, cancel_event, on_progress) -> tuple:
         'format': 'bestaudio[ext=m4a]/bestaudio/best',
         'outtmpl': os.path.join(work, 'input.%(ext)s'),
         'noplaylist': True, 'quiet': True, 'no_warnings': True, 'noprogress': True,
-        'max_filesize': max_bytes, 'progress_hooks': [hook],
+        # No limit set in Settings -> let yt-dlp download any size.
+        'max_filesize': max_bytes if max_bytes != float('inf') else None, 'progress_hooks': [hook],
         'restrictfilenames': True, 'cachedir': False,
     }
     try:
@@ -175,8 +176,9 @@ def _download_page(url, work, max_bytes, cancel_event, on_progress) -> tuple:
                           f'({str(exc)[:160]})')
     files = [f for f in os.listdir(work) if f.startswith('input.') and not f.endswith('.part')]
     if not files:
-        raise SourceError('link_failed', 'That link did not contain audio Santa could download '
-                          f'(it may be larger than the {max_bytes / 1e6:.0f} MB limit).')
+        too_big = (f' (it may be larger than the {max_bytes / 1e6:.0f} MB limit)'
+                   if max_bytes != float('inf') else '')
+        raise SourceError('link_failed', f'That link did not contain audio Santa could download{too_big}.')
     path = os.path.join(work, files[0])
     os.chmod(path, 0o600)
     title = (info or {}).get('title') or 'link'

@@ -109,10 +109,13 @@ class SantaHttpEngine:
         try:
             language = _request('GET', '/api/settings').get('settings', {}).get('language', 'auto')
             started = time.time()
+            # No length limit on dictation: allow extra time in proportion to the
+            # recording (CPU fallback + grammar correction on a very long take).
+            time_allowed = self.timeout + len(audio_data) / 16000.0
             job = _request('POST', f'/api/transcribe?language={language}&filename=dictation.wav&source=recording',
                            body=to_wav_bytes(audio_data), headers={'Content-Type': 'audio/wav'})
             while job['state'] not in ('done', 'error', 'cancelled'):
-                if time.time() - started > self.timeout:
+                if time.time() - started > time_allowed:
                     _request('POST', f"/api/jobs/{job['id']}/cancel", body=b'')
                     print('   ✗ Santa timed out.')
                     return None
@@ -137,4 +140,7 @@ class SantaHttpEngine:
         LAST_RESULT = result
         print(f"   ✓ Santa: {result['audio_seconds']:.1f}s → {len(result['text'])} chars in "
               f"{time.time() - started:.1f}s ({result.get('engine')}, {result['language_mode']})")
+        note = (result.get('polish') or {}).get('note')
+        if note:
+            print(f'   ⚠ {note}')
         return result['text'] or None
