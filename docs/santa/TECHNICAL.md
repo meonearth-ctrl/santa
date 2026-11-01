@@ -110,6 +110,17 @@ Not verified here: output quality of a real Ollama model (the build container
 cannot download one). Tests use a fake Ollama HTTP server for the protocol,
 splitting and guards. Check on the Mac with `ollama pull gemma3:4b`.
 
+## Added 2026-10-29: live interviews (Hiring Right)
+
+| Feature | Where | How |
+|---|---|---|
+| Live session | `santa/live.py` `LiveSession`, `LiveManager` | Three threads: audio source → `Endpointer` (Silero VAD every 0.3 s on the open buffer; cut after ≥ 5 s of speech and a ~0.9 s pause, after any ~1.5 s pause, or by 15 s at the longest inner pause) → transcriber (`service.transcribe_clip`, same GPU/CPU routing as jobs, language pinned after the first detection). One session at a time. |
+| Live file | `<export_dir>/<label>.live.json` | Export schema + `live`, `state`, `seats`, per-line `seat`/`seat_how`, latency stats. Rewritten atomically after every piece. |
+| Record of truth | `LiveManager._finished`, service source `live` | The WAV kept in `Santa/live/` is queued as a batch-lane file job: verbatim (no polish/translation), speakers per Settings, always exported. |
+| Seat tags | `santa/seat_tagger.py` | Line-for-line port of Hiring Right's tagger (`re.ASCII` to match JS `\b`/`\d`, JS key order for ties). Forward-only, so live tags = whole-transcript tags. `tests/test_live.py` diffs it against the JS (vendored in `tests/fixtures/`). |
+| Feed | `server._live_get` | `GET /api/live/<label>?since=` (lines with `end > since`, `next_since`); loopback Host check as for every request; refused in iPhone mode. |
+| Replay | `santa --replay FILE --speed N`, `POST /api/live/replay` | `FileSource` paces decoded audio at N× real time; latency = written − (clock start + line end / N). |
+
 ## Hardware findings (Apple M5, 16 GB, macOS 26.6)
 * CTranslate2 has no Metal backend → faster-whisper runs on CPU (int8).
   CT2's default uses 4 threads; 8 measured ~20 % faster → Santa uses cores−2 (max 8).
@@ -124,7 +135,8 @@ splitting and guards. Check on the Mac with `ollama pull gemma3:4b`.
 |---|---|
 | `santa` | start server + open browser (`--port`, `--no-browser`, `--model`) |
 | `santa-dictation` | hotkey dictation into any app via Santa |
-| `python -m pytest tests/test_santa.py tests/test_smoke.py` | tests |
+| `santa --replay FILE --speed 1 --roster R.json` | play a recording through live interview mode, print latency |
+| `python -m pytest tests/test_santa.py tests/test_live.py tests/test_smoke.py` | tests |
 | `python santa-app/dev/bench.py --model large-v3-turbo` | CPU benchmark |
 | `python santa-app/dev/bench_cpp.py --beam 5 --no-timestamps` | Metal benchmark |
 | `python santa-app/dev/e2e_service.py` | end-to-end service check |

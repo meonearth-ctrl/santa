@@ -145,6 +145,28 @@
     <ul id="fileJobs" class="file-jobs"></ul>
   </section>
 
+  <!-- Live interview (Mac only): records this Mac's microphone, transcribes as people speak,
+       tags lines to seats and writes <label>.live.json for Hiring Right's probe service. -->
+  <section class="panel live mac-only" id="livePanel" aria-label="Live interview">
+    <div class="transcript-head">
+      <h2>Live interview</h2>
+      <span id="liveStatus" class="hint" role="status">Not running</span>
+    </div>
+    <div class="controls-row">
+      <label class="field"><span>Group label</span>
+        <input id="liveLabel" type="text" autocomplete="off" spellcheck="false" placeholder="2026-11-03_MNL_G4"></label>
+      <label class="field"><span>Language spoken</span><select id="liveLanguageSel"></select></label>
+    </div>
+    <label class="field"><span>Seats (optional): one per line, "1 Rose Ancineta"</span>
+      <textarea id="liveRoster" rows="4" spellcheck="false" placeholder="1 Rose Ancineta&#10;2 Mark Cruz&#10;3 Ana Santos"></textarea></label>
+    <div class="toolbar">
+      <button id="liveStartBtn" class="record">Start live session</button>
+      <button id="liveStopBtn" class="secondary danger-text" hidden>Stop</button>
+    </div>
+    <ol id="liveLines" class="live-lines" aria-live="polite"></ol>
+    <p class="hint">Audio stays on this Mac (kept in Santa's “live” folder). Lines appear about 5–10 s after they are spoken. On Stop, the full recording is transcribed again the usual way, and that <b>.json</b> is the record of truth.</p>
+  </section>
+
   <section class="panel history" id="historyPanel" hidden aria-label="History">
     <div class="transcript-head">
       <h2>History <small>(stored on your Mac only)</small></h2>

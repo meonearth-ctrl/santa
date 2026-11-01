@@ -10,7 +10,10 @@
 #     * TLS with a name-constrained local certificate; private-network clients only
 #     * every API call needs a paired device token (cookie, or Bearer for Shortcuts)
 #     * Mac-only powers are refused: reading file paths, folders & exports,
-#       models, quitting, pairing more devices
+#       models, quitting, pairing more devices, live interview sessions
+#
+# Live interview feed (santa/live.py), loopback only, for the probe service on
+# the same Mac:  GET /api/live/<label>?since=<seconds>  -> new tagged segments.
 #
 # In both modes bodies are size-capped before reading and no transcript text or
 # audio is ever written to logs.
@@ -31,6 +34,7 @@ from . import __version__, APP_NAME, phone
 from .audio_input import AudioInputError, check_upload, new_temp_path, remove_temp, decode_path
 from .languages import language_modes_for_ui, hinglish_strategies_for_ui, UnknownLanguageMode
 from .models import catalog_for_ui, total_ram_gb, CATALOG
+from .live import LiveError
 from .service import TranscriptionService, QueueFull
 from .settings import upload_limit_bytes
 from .translate import OUTPUT_LANGUAGES
@@ -99,6 +103,20 @@ def _job_options(values: dict) -> dict:
     except (TypeError, ValueError):
         pass
     return opts
+
+
+def _int_or_none(value):
+    try:
+        return int(value) if value not in (None, '') else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_or(value, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 
 class SantaHandler(BaseHTTPRequestHandler):
@@ -224,6 +242,8 @@ class SantaHandler(BaseHTTPRequestHandler):
             if self._mac_only():
                 return
             return self._json(200, self._phone_status())
+        if path == '/api/live' or path.startswith('/api/live/'):
+            return self._live_get(path, parse_qs(urlparse(self.path).query))
         if path == '/phone/santa.mobileconfig':
             if self._mac_only():
                 return
@@ -280,6 +300,8 @@ class SantaHandler(BaseHTTPRequestHandler):
             return self._json(202, {'model': svc.models.get_status()})
         if path.startswith('/api/phone/'):
             return self._phone_action(path)
+        if path.startswith('/api/live/'):
+            return self._live_action(path)
         if path == '/api/shutdown':
             if self._mac_only():
                 return
@@ -466,6 +488,68 @@ class SantaHandler(BaseHTTPRequestHandler):
                 fh.write(chunk)
                 remaining -= len(chunk)
         return True
+
+    # ── Live interview sessions (Mac only) ───────────────────────────────
+    def _live_manager(self):
+        manager = getattr(self.server.service, 'live', None)
+        if manager is None:
+            self._error(503, 'live_unavailable', 'Live interview mode is not available in this Santa.')
+        return manager
+
+    def _live_get(self, path: str, query: dict):
+        """GET /api/live (status) or /api/live/<label>?since=<seconds> (the feed)."""
+        if self._mac_only():
+            return
+        manager = self._live_manager()
+        if manager is None:
+            return
+        if path.rstrip('/') == '/api/live':
+            return self._json(200, manager.status())
+        label = unquote(path[len('/api/live/'):])
+        try:
+            since = float((query.get('since') or [''])[0]) if (query.get('since') or [''])[0] else None
+        except ValueError:
+            return self._error(400, 'bad_since', 'since must be a number of seconds.')
+        result = manager.feed(label, since)
+        if result is None:
+            return self._error(404, 'no_session', f'No live session called "{label}".')
+        return self._json(200, result)
+
+    def _live_action(self, path: str):
+        """POST /api/live/start {label, roster?, seats?, language?}, /api/live/stop,
+        /api/live/replay {path, label?, speed?, roster?, language?, offline?}."""
+        if self._mac_only():
+            return
+        manager = self._live_manager()
+        if manager is None:
+            return
+        body = self._read_json()
+        if body is None:
+            return
+        try:
+            if path == '/api/live/start':
+                session = manager.start(str(body.get('label') or ''), body.get('roster'),
+                                        _int_or_none(body.get('seats')), body.get('language') or None)
+            elif path == '/api/live/replay':
+                source = os.path.expanduser(str(body.get('path') or '').strip())
+                if not os.path.isfile(source):
+                    return self._error(400, 'no_file', 'That file does not exist on this Mac.')
+                label = str(body.get('label') or '') or os.path.splitext(os.path.basename(source))[0] + '.replay'
+                session = manager.start(label, body.get('roster'), _int_or_none(body.get('seats')),
+                                        body.get('language') or None, replay_path=source,
+                                        speed=_float_or(body.get('speed'), 1.0),
+                                        offline=bool(body.get('offline')))
+            elif path == '/api/live/stop':
+                session = manager.stop()
+            else:
+                return self._error(404, 'not_found', 'Not found')
+        except LiveError as exc:
+            return self._error(409 if exc.code in ('busy', 'exists', 'not_running') else 400, exc.code, exc.message)
+        except AudioInputError as exc:
+            return self._error(400, exc.code, exc.message)
+        except UnknownLanguageMode as exc:
+            return self._error(400, 'bad_language', str(exc))
+        return self._json(200, {'session': session.public()})
 
     # ── Phone pairing (phone side) ───────────────────────────────────────
     def _pair(self):

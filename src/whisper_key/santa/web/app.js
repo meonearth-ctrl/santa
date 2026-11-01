@@ -849,7 +849,83 @@ function openSettings(focusVocab) {
   if (focusVocab) { $('promptInput').focus(); $('vocabSet').scrollIntoView(); }
 }
 
+// ── Live interview (Mac only) ──────────────────────────────────────────────
+// Start/stop a live session and show its seat-tagged lines as they arrive, by
+// polling the same loopback feed the probe service uses.
+const live = { label: null, since: null, timer: null };
+
+function liveSeatLabel(seg, roster) {
+  if (typeof seg.seat === 'number') {
+    const name = (roster.find((c) => c.no === seg.seat) || {}).name;
+    return { text: '#' + seg.seat, title: name || '', cls: 'seat' };
+  }
+  return seg.seat === 'panel' ? { text: 'panel', title: '', cls: 'seat panel' } : { text: '?', title: '', cls: 'seat unknown' };
+}
+
+function renderLiveStatus(p) {
+  const running = p && ['starting', 'recording', 'finishing'].includes(p.state);
+  $('liveStartBtn').hidden = running; $('liveStopBtn').hidden = !running;
+  ['liveLabel', 'liveLanguageSel', 'liveRoster'].forEach((id) => { $(id).disabled = running; });
+  if (!p) { $('liveStatus').textContent = 'Not running'; return; }
+  const mins = Math.floor(p.audio_seconds / 60), secs = Math.floor(p.audio_seconds % 60);
+  const lat = (p.latency_seconds && p.latency_seconds.segment) || {};
+  const parts = [p.label || p.source, p.state, mins + ':' + String(secs).padStart(2, '0')];
+  if (lat.count) parts.push('lines ~' + lat.median + ' s behind');
+  if (p.offline_job) parts.push('full transcript queued');
+  if (p.error) parts.push('⚠ ' + p.error);
+  $('liveStatus').textContent = parts.join(' · ');
+}
+
+async function pollLive() {
+  clearTimeout(live.timer);
+  if (!live.label) return;
+  try {
+    const q = live.since == null ? '' : '?since=' + encodeURIComponent(live.since);
+    const feed = await api('GET', '/api/live/' + encodeURIComponent(live.label) + q);
+    const list = $('liveLines');
+    feed.segments.forEach((seg) => {
+      const tag = liveSeatLabel(seg, feed.seats || []);
+      const li = document.createElement('li');
+      const seat = document.createElement('span'); seat.className = tag.cls; seat.textContent = tag.text; seat.title = tag.title;
+      const text = document.createElement('span'); text.textContent = seg.text;
+      li.append(seat, text); list.append(li);
+    });
+    if (feed.segments.length) list.scrollTop = list.scrollHeight;
+    live.since = feed.next_since;
+    renderLiveStatus(feed);
+    if (['starting', 'recording', 'finishing'].includes(feed.state)) { live.timer = setTimeout(pollLive, 1000); return; }
+  } catch (e) {
+    showAlert(e.message || 'Lost the live session.');
+    if (e.code !== 'no_session') live.timer = setTimeout(pollLive, 3000);
+  }
+}
+
+async function startLive() {
+  const label = $('liveLabel').value.trim();
+  if (!label) { showAlert('Give the group a label first, e.g. 2026-11-03_MNL_G4.'); $('liveLabel').focus(); return; }
+  try {
+    const r = await api('POST', '/api/live/start', { label, roster: $('liveRoster').value, language: $('liveLanguageSel').value });
+    live.label = r.session.label; live.since = null; $('liveLines').replaceChildren();
+    renderLiveStatus(r.session); pollLive();
+  } catch (e) { showAlert(e.message || 'Could not start the live session.'); }
+}
+
+async function stopLive() {
+  try { renderLiveStatus((await api('POST', '/api/live/stop', {})).session); pollLive(); }
+  catch (e) { showAlert(e.message || 'Could not stop the live session.'); }
+}
+
+async function resumeLiveView() {
+  // A session started earlier (or from another tab) keeps showing after a reload.
+  try {
+    const st = await api('GET', '/api/live');
+    if (st.current) { live.label = st.current.label; live.since = null; $('liveLabel').value = st.current.label; pollLive(); }
+  } catch (e) { /* live mode not available */ }
+}
+
 function wire() {
+  $('liveStartBtn').onclick = startLive;
+  $('liveStopBtn').onclick = stopLive;
   $('recordBtn').onclick = () => (ui.state === 'recording' ? stopRecording(true) : startRecording('dictation'));
   $('cancelBtn').onclick = cancelCurrent;
   $('uploadBtn').onclick = () => $('fileInput').click();
@@ -993,6 +1069,9 @@ async function startApp() {
   $('pairPanel').hidden = true; $('mainPanel').hidden = false; $('settingsBtn').hidden = false;
   if (ui.client === 'mac') {
     await listMics();
+    fillLanguageSelect($('liveLanguageSel'));
+    $('liveLanguageSel').value = ui.settings.watch_language || 'en';
+    resumeLiveView();
     if (location.hash === '#vocab') openSettings(true);
     if (location.hash === '#iphone') { openSettings(false); $('phoneSet').scrollIntoView(); }
   }

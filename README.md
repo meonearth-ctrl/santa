@@ -18,7 +18,30 @@
   length for long recordings) with automatic CPU fallback on any doubtful output
 - **Transcript hand-off** — JSON + SRT with timestamps and a watch folder, used by
   the "Hiring Right" interview-scoring workflow
+- **Live interviews** — transcribes a group interview while it happens, tags each
+  line to a candidate seat and serves it on a localhost-only feed for a live
+  probe assistant (see [Live interviews](#live-interviews) below)
 - Fully offline after model download; no telemetry, no cloud
+
+### Live interviews
+
+In the Santa window, **Live interview**: type a group label (e.g. `2026-11-03_MNL_G4`),
+optionally the seats (`1 Rose Ancineta`, one per line), and press **Start live session**.
+Santa records this Mac's microphone, cuts it at pauses into 5–15 s pieces, transcribes
+each on the Metal GPU and appends it to `~/Documents/Hiring Right/03_Transcripts/<label>.live.json`
+(the usual export schema plus `"live": true` and a `seat` per line: a number, `"panel"`,
+or absent). Seats come from the same cues as Hiring Right's tagger (number said, name
+said, the panel calling a number), ported line for line in `santa/seat_tagger.py`.
+On **Stop** the recording (kept in `~/Library/Application Support/Santa/live/`) gets the
+normal offline pass, which writes `<label>.json` + `.srt`: that stays the record of truth.
+
+* Feed for the probe service on the same Mac (loopback only, refused on the iPhone port):
+  `GET http://127.0.0.1:8765/api/live/<label>?since=<seconds>` returns the lines that
+  ended after `since` plus `next_since`. `GET /api/live` shows the current session.
+* Test without a room: `santa --replay "<video>" --speed 1 [--roster rosters.json] [--out DIR]`
+  plays a recording through live mode and prints the latency. `POST /api/live/replay`
+  does the same inside the running Santa.
+* Measured on the M5: 32-min group (G1 calibration) replayed in real time: each line is written a median **2.2 s** after its last word (90 % within 7.4 s); a piece is written 1.6 s after it ends (90 % within 2.1 s); the GPU takes ~1.1 s per piece. 99 % of lines got a seat; lines tagged by a number or name said agreed with the offline tags 6 of 7 times, `carry` lines only about half the time.
 
 **Start here:** [`docs/santa/README.md`](docs/santa/README.md) · Install:
 `santa-app/Install Santa.command` · Guide: [`docs/santa/USER_GUIDE.md`](docs/santa/USER_GUIDE.md) ·

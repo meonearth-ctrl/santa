@@ -9,7 +9,9 @@
 # correction (santa/polish.py), speaker separation (files only) and an
 # explicit, labelled translation to English/Arabic. It has no knowledge of HTTP,
 # browsers, hotkeys or the clipboard, so the Mac window, the iPhone page and the
-# floating assistant all call the same code.
+# floating assistant all call the same code. Live interview sessions
+# (santa/live.py) borrow transcribe_clip() for their short pieces and hand the
+# finished recording back as an ordinary 'live' file job.
 
 import logging
 import queue
@@ -35,7 +37,9 @@ logger = logging.getLogger(__name__)
 MAX_PENDING_JOBS = 3          # interactive lane: queued + running; more is refused (HTTP 429)
 MAX_BATCH_JOBS = 50           # batch lane
 BATCH_BYTES = 25_000_000      # uploads bigger than this go to the batch lane
-FILE_SOURCES = ('upload', 'watch', 'path', 'link')   # exported when export is on; may be diarized
+FILE_SOURCES = ('upload', 'watch', 'path', 'link', 'live')   # exported when export is on; may be diarized
+# Interview recordings for Hiring Right: kept word for word in the spoken language.
+VERBATIM_SOURCES = ('watch', 'live')
 JOB_TTL_SECONDS = 15 * 60     # finished jobs are forgotten after this
 
 
@@ -48,7 +52,7 @@ class QueueFull(Exception):
 class Job:
     id: str
     language_mode: str
-    source: str                      # 'recording' | 'upload' | 'watch' | 'path' | 'link' | 'api'
+    source: str                      # 'recording' | 'upload' | 'watch' | 'path' | 'link' | 'live' | 'api'
     audio_path: Optional[str]        # file to decode (None for a link until it is downloaded)
     ext: str
     options: dict = field(default_factory=dict)   # per-job overrides: output_language, diarize, num_speakers
@@ -141,7 +145,7 @@ class TranscriptionService:
         if ext not in audio_input.SUPPORTED_EXTENSIONS:
             audio_input.check_upload(filename, 1, 1)          # raises the friendly error
         size = os.path.getsize(path)
-        lane = 'batch' if source == 'watch' or size > BATCH_BYTES else 'interactive'
+        lane = 'batch' if source in VERBATIM_SOURCES or size > BATCH_BYTES else 'interactive'
         self._forget_old_jobs()
         with self._jobs_lock:
             active = sum(1 for j in self._jobs.values()
@@ -208,6 +212,25 @@ class TranscriptionService:
             time.sleep(0.05)
         return job.public()
 
+    def transcribe_clip(self, samples, language_mode: str, language: str = None) -> dict:
+        """One short piece (<= 28 s) straight away, outside the job queues: used by
+        live interview sessions. Same engine choice as a job (Metal GPU when ready,
+        else the CPU model), timestamps on, no clean-up. `language` pins the Whisper
+        language once auto-detect has decided it, so pieces can't flip language."""
+        s = self.settings.get()
+        params = resolve_decode_params(language_mode, s['hinglish_strategy'], s['user_prompt'])
+        if language and params.language is None and not params.multilingual:
+            params = replace(params, language=language)
+        if self._accel_wanted(s) and self.accel.ready() and not params.multilingual:
+            try:
+                return self.accel.transcribe(samples, params, timestamps=True)
+            except accel_cpp.AcceleratorError as exc:
+                logger.info('live piece: GPU fast path rejected (%s); using CPU engine', exc)
+        model = self.models.wait_ready(s['model'])
+        raw = self._transcribe_fn(model, samples, params, beam_size=s['beam_size'], vad_filter=s['vad_filter'])
+        raw.setdefault('engine', 'faster-whisper · CPU')
+        return raw
+
     # ── Worker ───────────────────────────────────────────────────────────
     def _work(self, jobs_queue) -> None:
         while True:
@@ -230,7 +253,7 @@ class TranscriptionService:
                              f'Unexpected error: {type(exc).__name__}. See the Santa log.'})
             finally:
                 self._release_audio(job)
-                if job.state == 'error' and job.source == 'watch':
+                if job.state == 'error' and job.source in VERBATIM_SOURCES:
                     self._export_error(job)
 
     def _run(self, job: Job) -> None:
@@ -304,7 +327,7 @@ class TranscriptionService:
         """Dictation is always polished (unless the level is off). Files only when
         asked to; watch-folder transcripts feed Hiring Right word for word, and
         speaker-separated transcripts are rebuilt from the timed segments."""
-        if s['polish'] not in ('clean', 'grammar') or job.source == 'watch' or opts['diarize']:
+        if s['polish'] not in ('clean', 'grammar') or job.source in VERBATIM_SOURCES or opts['diarize']:
             return False
         return job.source not in FILE_SOURCES or s['polish_files']
 
@@ -464,6 +487,8 @@ class TranscriptionService:
 
     @staticmethod
     def _wants_export(job: Job, s: dict) -> bool:
+        if job.source == 'live':           # the record of truth for a live interview: always written
+            return bool(s['export_dir'])
         return bool(s['export_enabled'] and s['export_dir'] and job.source in FILE_SOURCES)
 
     def _export_error(self, job: Job) -> None:
@@ -556,10 +581,10 @@ def clean_options(options: dict = None) -> dict:
 def resolve_options(job: Job, s: dict) -> dict:
     """Job overrides on top of settings. Speakers are only ever separated for
     files, never for dictation; watch-folder transcripts are never translated
-    (they feed Hiring Right in the spoken language)."""
+    (they feed Hiring Right in the spoken language); nor are live interviews."""
     is_file = job.source in FILE_SOURCES
     opts = {
-        'output_language': 'same' if job.source == 'watch' else s['output_language'],
+        'output_language': 'same' if job.source in VERBATIM_SOURCES else s['output_language'],
         'diarize': bool(s['diarize_files']) and is_file,
         'num_speakers': s['num_speakers'],
     }

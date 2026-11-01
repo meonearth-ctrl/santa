@@ -65,11 +65,23 @@ def main(argv=None) -> int:
     parser.add_argument('--model', help='use this model (saved to settings)')
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('--version', action='store_true')
+    # Live interview replay: test live mode on a recorded file (no server needed).
+    parser.add_argument('--replay', metavar='FILE', help='feed a recorded audio/video file through live mode')
+    parser.add_argument('--speed', type=float, default=1.0, help='replay speed (1 = real time)')
+    parser.add_argument('--label', help='live session label (default: <file>.replay)')
+    parser.add_argument('--roster', help='roster JSON ({seat: name}, [{no, name}] or transcript-group-rosters.json)')
+    parser.add_argument('--language', help='language mode (default: the watch-folder language)')
+    parser.add_argument('--out', help='folder for the .live.json (default: the export folder)')
+    parser.add_argument('--offline', action='store_true', help='also run the full offline pass afterwards')
     args = parser.parse_args(argv)
 
     if args.version:
         print(f'{APP_NAME} {__version__}')
         return 0
+    if args.replay:
+        logging.basicConfig(level=logging.WARNING)
+        from .live import run_replay
+        return run_replay(args.replay, args.speed, args.label, args.roster, args.language, args.out, args.offline)
     if not _is_loopback(args.host):
         print('The Santa window only listens on this computer (127.0.0.1). For your phone, '
               'switch on Settings › iPhone access (HTTPS + pairing) instead.')
@@ -103,6 +115,8 @@ def main(argv=None) -> int:
     from .watch import WatchFolder
     service.watcher = WatchFolder(service)      # idle unless enabled in Settings
     service.watcher.start()
+    from .live import LiveManager
+    service.live = LiveManager(service, os.path.join(home, 'live'))   # live interviews: audio kept here
     from .phone_access import PhoneAccess
     service.phone = PhoneAccess(service, home)  # iPhone access: off unless enabled in Settings
     service.phone.apply_settings(settings.get())
@@ -116,6 +130,8 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
+        if service.live.current is not None and service.live.current.active:
+            service.live.current.stop()      # close the recording cleanly; its .wav stays in Santa/live
         service.phone.stop()
         httpd.server_close()
     print(f'{APP_NAME} stopped.')
