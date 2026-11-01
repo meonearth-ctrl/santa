@@ -56,6 +56,13 @@ DEFAULTS = {
     # iPhone access over the home Wi-Fi (HTTPS + pairing). Off unless switched on.
     'phone_enabled': False,
     'phone_port': 8766,
+    # Live Assist (live interviews): Claude suggests probes and re-scores seats.
+    # Only transcript text is sent; the key lives in ~/.config/hiring-right/anthropic-key.
+    'assist_config_dir': '~/Documents/Hiring Right/09_Live_Replay',   # Hiring Right config + probe bank
+    'assist_probe_model': 'claude-sonnet-5-5',
+    'assist_rating_model': 'claude-sonnet-5-5',    # claude-opus-5-5 is the optional stronger rater
+    'assist_session_budget': 2,                    # US$ per interview session; calls stop at the cap
+    'assist_daily_budget': 40,                     # US$ per day across sessions
 }
 
 _CHOICES = {
@@ -67,6 +74,8 @@ _CHOICES = {
     'watch_language': set(LANGUAGE_MODES),
     'output_language': {'same', 'en', 'ar'},
     'polish': set(POLISH_LEVELS),
+    'assist_probe_model': {'claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5'},
+    'assist_rating_model': {'claude-sonnet-5-5', 'claude-opus-5-5'},
 }
 # Free-text settings that must still look a certain way.
 _PATTERNS = {
@@ -76,6 +85,7 @@ _RANGES = {
     'cpu_threads': (0, 64), 'beam_size': (1, 10),
     'max_upload_mb': (0, 100_000), 'max_duration_min': (0, 100_000),
     'num_speakers': (0, 10), 'phone_port': (1024, 65535),
+    'assist_session_budget': (0, 100), 'assist_daily_budget': (0, 1000),
 }
 
 

@@ -182,3 +182,22 @@ body { padding-bottom: env(safe-area-inset-bottom); }
 .live-lines .seat { flex: 0 0 4.5em; font-weight: 600; font-variant-numeric: tabular-nums; }
 .live-lines .seat.panel { opacity: .6; font-weight: 400; }
 .live-lines .seat.unknown { opacity: .4; font-weight: 400; }
+
+/* Live Assist panel */
+.assist-steps { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+.assist-steps button { font-size: 13px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); }
+.assist-steps button.running { border-color: var(--accent); font-weight: 600; }
+.assist-steps button.done { opacity: .55; text-decoration: line-through; }
+.assist-cards { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.assist-cards li { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--bg); }
+.assist-cards .card-head { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+.assist-cards .seat { font-size: 18px; font-weight: 700; }
+.assist-cards .badge { font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.assist-cards .say { font-size: 17px; margin: 6px 0; }
+.assist-cards .why { font-size: 13px; opacity: .75; }
+.assist-cards .toolbar { margin-top: 8px; }
+.assist-coverage { margin-top: 12px; font-size: 13px; display: grid; gap: 4px; }
+.assist-coverage .chip { display: inline-block; padding: 1px 8px; margin: 0 4px 2px 0; border-radius: 999px; border: 1px solid var(--line); }
+.assist-rating { margin-top: 12px; }
+.assist-rating table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 6px; }
+.assist-rating td, .assist-rating th { text-align: left; padding: 4px 6px; border-top: 1px solid var(--line); vertical-align: top; }

@@ -14,6 +14,9 @@
 #
 # Live interview feed (santa/live.py), loopback only, for the probe service on
 # the same Mac:  GET /api/live/<label>?since=<seconds>  -> new tagged segments.
+# Live Assist (santa/assist.py) for the panel, Mac window AND paired phones:
+#   GET /api/assist, POST /api/assist/activity|card|show-rating. Ratings only
+#   reach the Mac window and phones marked "lead", and only when switched on.
 #
 # In both modes bodies are size-capped before reading and no transcript text or
 # audio is ever written to logs.
@@ -219,7 +222,8 @@ class SantaHandler(BaseHTTPRequestHandler):
             if name in _STATIC_FILES:
                 return self._send(200, _web_file(name), _STATIC_FILES[name], cache=name.endswith('.png'))
             return self._error(404, 'not_found', 'Not found')
-        if self.is_phone and self._device() is None:
+        device = self._device() if self.is_phone else None
+        if self.is_phone and device is None:
             return
         svc = self.server.service
         if path == '/api/status':
@@ -244,6 +248,8 @@ class SantaHandler(BaseHTTPRequestHandler):
             return self._json(200, self._phone_status())
         if path == '/api/live' or path.startswith('/api/live/'):
             return self._live_get(path, parse_qs(urlparse(self.path).query))
+        if path == '/api/assist':
+            return self._assist_view(device)
         if path == '/phone/santa.mobileconfig':
             if self._mac_only():
                 return
@@ -302,6 +308,10 @@ class SantaHandler(BaseHTTPRequestHandler):
             return self._phone_action(path)
         if path.startswith('/api/live/'):
             return self._live_action(path)
+        if path.startswith('/api/assist/'):
+            return self._assist_action(path, device)
+        if path.startswith('/api/phone/devices/') and path.endswith('/lead'):
+            return self._set_lead(path)
         if path == '/api/shutdown':
             if self._mac_only():
                 return
@@ -529,7 +539,8 @@ class SantaHandler(BaseHTTPRequestHandler):
         try:
             if path == '/api/live/start':
                 session = manager.start(str(body.get('label') or ''), body.get('roster'),
-                                        _int_or_none(body.get('seats')), body.get('language') or None)
+                                        _int_or_none(body.get('seats')), body.get('language') or None,
+                                        assist=body.get('assist') is True, track=str(body.get('track') or 'team'))
             elif path == '/api/live/replay':
                 source = os.path.expanduser(str(body.get('path') or '').strip())
                 if not os.path.isfile(source):
@@ -538,7 +549,8 @@ class SantaHandler(BaseHTTPRequestHandler):
                 session = manager.start(label, body.get('roster'), _int_or_none(body.get('seats')),
                                         body.get('language') or None, replay_path=source,
                                         speed=_float_or(body.get('speed'), 1.0),
-                                        offline=bool(body.get('offline')))
+                                        offline=bool(body.get('offline')),
+                                        assist=body.get('assist') is True, track=str(body.get('track') or 'team'))
             elif path == '/api/live/stop':
                 session = manager.stop()
             else:
@@ -550,6 +562,68 @@ class SantaHandler(BaseHTTPRequestHandler):
         except UnknownLanguageMode as exc:
             return self._error(400, 'bad_language', str(exc))
         return self._json(200, {'session': session.public()})
+
+    # ── Live Assist (Mac window and paired phones) ───────────────────────
+    def _viewer(self, device) -> str:
+        return device['id'] if device else 'mac'
+
+    def _may_see_rating(self, manager, device) -> bool:
+        """The Mac window and lead phones may switch ratings on; nobody sees them by default."""
+        if device is not None and not device.get('lead'):
+            return False
+        return self._viewer(device) in manager.rating_viewers
+
+    def _assist_view(self, device):
+        manager = getattr(self.server.service, 'live', None)
+        helper = manager.assist() if manager is not None else None
+        if helper is None:
+            return self._json(200, {'active': False})
+        view = helper.view(show_rating=self._may_see_rating(manager, device))
+        view.update(active=True, can_rate=device is None or bool(device.get('lead')),
+                    show_rating=self._may_see_rating(manager, device))
+        return self._json(200, view)
+
+    def _assist_action(self, path: str, device):
+        """POST /api/assist/activity {id, action: start|finish}, /api/assist/card
+        {id, status: asked|skipped}, /api/assist/show-rating {on} (Mac or lead phone)."""
+        from .assist import AssistError
+        manager = getattr(self.server.service, 'live', None)
+        helper = manager.assist() if manager is not None else None
+        if helper is None:
+            return self._error(409, 'no_assist', 'Live Assist is not running.')
+        body = self._read_json()
+        if body is None:
+            return
+        try:
+            if path == '/api/assist/activity':
+                helper.activity(str(body.get('id') or ''), str(body.get('action') or ''))
+            elif path == '/api/assist/card':
+                if not helper.mark_card(str(body.get('id') or ''), str(body.get('status') or '')):
+                    return self._error(404, 'no_card', 'That suggestion is gone.')
+            elif path == '/api/assist/show-rating':
+                if device is not None and not device.get('lead'):
+                    return self._error(403, 'not_lead', 'Only the panel lead can show live ratings.')
+                (manager.rating_viewers.add if body.get('on') is True else manager.rating_viewers.discard)(
+                    self._viewer(device))
+            else:
+                return self._error(404, 'not_found', 'Not found')
+        except AssistError as exc:
+            return self._error(400, exc.code, exc.message)
+        return self._assist_view(device)
+
+    def _set_lead(self, path: str):
+        """POST /api/phone/devices/<id>/lead {lead}: Mac only."""
+        if self._mac_only():
+            return
+        access = self._phone_access_or_error()
+        if access is None:
+            return
+        body = self._read_json()
+        if body is None:
+            return
+        if not access.devices.set_lead(path.split('/')[4], body.get('lead') is True):
+            return self._error(404, 'no_device', 'Unknown device.')
+        return self._json(200, {'phone': self._phone_status()})
 
     # ── Phone pairing (phone side) ───────────────────────────────────────
     def _pair(self):

@@ -8,7 +8,9 @@
 # offline pass, which writes the usual <label>.json + .srt: the record of truth.
 #
 # Audio never leaves the Mac: the only outputs are local files and the
-# loopback-only /api/live feed (santa/server.py). A replay source feeds a
+# loopback-only /api/live feed (santa/server.py). With Live Assist on
+# (santa/assist.py), the tagged transcript lines also go to Claude for probe
+# suggestions and live rating; still text only. A replay source feeds a
 # recorded video through the same path at real or accelerated speed, so the
 # pipeline and its latency can be tested without a live room:
 #     santa --replay "~/Documents/Hiring Right/02_Batch_Videos/<file>.mov" --speed 4
@@ -267,6 +269,8 @@ class LiveSession:
         self.cpu_pieces = 0                       # pieces the GPU output checks sent to the CPU engine
         self.engine, self.language = None, None
         self.offline_job_id = None
+        self.assist = None                        # AssistSession when Live Assist is on
+        self.wants_offline = False                # run the full offline pass after Stop
         self.replay_source = None                 # the replayed file (offline pass input), if any
         self.started_at = time.time()
         self._samples_in = 0
@@ -326,7 +330,10 @@ class LiveSession:
                     break
                 if self._clock_start is None:      # wall time of the first sample of this block
                     self._clock_start = time.time() - len(block) / SAMPLE_RATE / self.source.speed
+                before = self._samples_in
                 self._samples_in += len(block)
+                if self.assist is not None and before // SAMPLE_RATE != self._samples_in // SAMPLE_RATE:
+                    self.assist.tick(self._samples_in / SAMPLE_RATE)     # once per second of audio
                 if self._wav is not None:
                     self._wav.writeframes((np.clip(block, -1, 1) * 32767).astype('<i2').tobytes())
                 for piece in self.endpointer.feed(block):
@@ -393,6 +400,8 @@ class LiveSession:
             self.piece_latencies.append(round(written - spoken_at(offset + len(samples) / SAMPLE_RATE), 2))
             self.transcribe_times.append(round(transcribe_seconds, 2))
         self._write()
+        if self.assist is not None and new:
+            self.assist.add_lines(new, self._samples_in / SAMPLE_RATE)
 
     def _wall_time(self, audio_seconds: float) -> float:
         return (self._clock_start or self.started_at) + audio_seconds / self.source.speed
@@ -425,6 +434,7 @@ class LiveSession:
             'latency_seconds': latency,
             'pieces': {'total': len(self.transcribe_times), 'redone_on_cpu': self.cpu_pieces},
             'offline_job': self.offline_job_id,
+            'assist': self.assist.path if self.assist is not None else None,
             'segments': segments,
         }
 
@@ -478,11 +488,14 @@ class LiveManager:
         self.audio_dir = audio_dir
         self.current = None
         self.vad = silero_regions                 # replaceable in tests
+        self.make_client = None                   # Claude client factory (tests pass a fake)
+        self.rating_viewers = set()
         self._recent = {}
         self._lock = threading.Lock()
 
     def start(self, label: str, roster=None, seats: int = None, language: str = None,
-              replay_path: str = None, speed: float = 1.0, offline: bool = None) -> LiveSession:
+              replay_path: str = None, speed: float = 1.0, offline: bool = None,
+              assist: bool = False, track: str = 'team') -> LiveSession:
         s = self.service.settings.get()
         label = check_label(label)
         language = language or s['watch_language']
@@ -504,8 +517,13 @@ class LiveManager:
                 if replay_path is None else None
             session = LiveSession(label, source, self._transcriber(language), export_dir, language,
                                   parse_roster(roster), seats, audio_path=audio_path, model=s['model'],
-                                  vad=self.vad, on_stopped=self._finished if offline else None)
+                                  vad=self.vad, on_stopped=self._finished)
             session.replay_source = replay_path
+            session.wants_offline = offline
+            if assist:
+                source_name = label + (os.path.splitext(replay_path)[1] if replay_path else '.wav')
+                session.assist = self._assist_for(session, track, s, export_dir, source_name)
+            self.rating_viewers = set()           # who may see live ratings: 'mac' and lead phone ids
             self.current = session
             self._recent[label] = session
         session.start()
@@ -544,7 +562,41 @@ class LiveManager:
             return self.service.transcribe_clip(samples, language_mode, language)
         return transcribe
 
+    def _assist_for(self, session: LiveSession, track: str, s: dict, export_dir: str, source_name: str):
+        """Live Assist for a session, or LiveError saying what is missing."""
+        from . import assist, assist_prompts
+        key = assist.api_key()
+        if self.make_client is None and not key:
+            raise LiveError('no_key', 'Live Assist needs the Anthropic API key in ~/.config/hiring-right/anthropic-key.')
+        try:
+            cfg = assist_prompts.load_config(s['assist_config_dir'])
+        except (OSError, ValueError, KeyError) as exc:
+            raise LiveError('no_config', f'Live Assist could not read the Hiring Right config in '
+                                         f'{s["assist_config_dir"]} ({type(exc).__name__}).') from exc
+        try:
+            client = self.make_client() if self.make_client else assist.make_client(key)
+        except ImportError as exc:
+            raise LiveError('no_sdk', 'Live Assist needs the anthropic package (run the Santa installer again).') from exc
+        try:
+            return assist.AssistSession(session.label, track, session.roster, cfg, client, s,
+                                        assist.SpendLedger(self.service.settings.home), export_dir, source_name)
+        except assist.AssistError as exc:
+            raise LiveError(exc.code, exc.message) from exc
+
+    def assist(self):
+        """The Live Assist of the current (or just finished) session, if any."""
+        return self.current.assist if self.current is not None else None
+
     def _finished(self, session: LiveSession) -> None:
+        """After Stop: Live Assist's final rating and output file (in the
+        background, it takes a few seconds), then the offline pass."""
+        if session.assist is not None:
+            threading.Thread(target=session.assist.finish, args=(session._samples_in / SAMPLE_RATE,),
+                             daemon=True, name='santa-assist-finish').start()
+        if session.wants_offline:
+            self._offline_pass(session)
+
+    def _offline_pass(self, session: LiveSession) -> None:
         """The kept recording (or the replayed file) goes through the normal
         offline pass (speaker separation per Settings) -> <label>.json + .srt."""
         recording = session.audio_path or session.replay_source
@@ -576,7 +628,8 @@ def load_roster_file(path: str, stem: str):
 
 
 def run_replay(path: str, speed: float = 1.0, label: str = None, roster_path: str = None,
-               language: str = None, out_dir: str = None, offline: bool = False) -> int:
+               language: str = None, out_dir: str = None, offline: bool = False,
+               assist_track: str = None) -> int:
     """Feed a recorded file through live mode in this process (no server needed,
     so it also works while the installed Santa is running) and print the
     latency from speech end to segment written."""
@@ -604,6 +657,9 @@ def run_replay(path: str, speed: float = 1.0, label: str = None, roster_path: st
     session = LiveSession(label, source, lambda samples, lang: service.transcribe_clip(samples, language, lang),
                           out_dir, language, roster, audio_path=None, model=s['model'])
     session.replay_source = os.path.expanduser(path)
+    if assist_track:
+        session.assist = _replay_assist(session, assist_track, s, settings.home, out_dir,
+                                        label + os.path.splitext(path)[1], stem)
     print(f'Replaying {os.path.basename(path)} ({len(source.samples) / SAMPLE_RATE / 60:.1f} min) at {source.speed:g}x '
           f'-> {session.path}  ({len(roster)} named seats)', flush=True)
     session.start()
@@ -619,6 +675,10 @@ def run_replay(path: str, speed: float = 1.0, label: str = None, roster_path: st
     except KeyboardInterrupt:
         session.stop()
     session.wait(timeout=120)
+    if session.assist is not None:
+        print('Live Assist: final rating…', flush=True)
+        session.assist.finish(session._samples_in / SAMPLE_RATE)
+        _print_assist(session.assist)
     p = session.payload()
     tagged = sum(isinstance(seg.get('seat'), int) for seg in p['segments'])
     print(f'\nDone: {p["state"]}, {p["audio_seconds"] / 60:.1f} min audio, {len(p["segments"])} segments, '
@@ -634,3 +694,35 @@ def run_replay(path: str, speed: float = 1.0, label: str = None, roster_path: st
             time.sleep(1)
         print(f'Offline pass: {job.state} {(job.result or {}).get("exported") or job.error}')
     return 0 if session.state == 'stopped' else 1
+
+
+def _replay_assist(session: LiveSession, track: str, s: dict, home: str, out_dir: str, source_name: str,
+                   recording_stem: str):
+    """Live Assist for a command-line replay (stops with a message when it can't start)."""
+    from . import assist, assist_prompts
+    key = assist.api_key()
+    if not key:
+        raise SystemExit('Live Assist needs the Anthropic API key in ~/.config/hiring-right/anthropic-key.')
+    cfg = assist_prompts.load_config(s['assist_config_dir'])
+    helper = assist.AssistSession(session.label, track, session.roster, cfg, assist.make_client(key), s,
+                                  assist.SpendLedger(home), out_dir, source_name)
+    # The recording's real activities (if Hiring Right has them) stand in for the panel's taps.
+    try:
+        with open(os.path.join(os.path.expanduser(s['assist_config_dir']), 'phases.json'), encoding='utf-8') as fh:
+            phases = json.load(fh).get(recording_stem) or []
+    except (OSError, ValueError):
+        phases = []
+    helper.play_phases(phases)
+    print(f'Live Assist ({track}): {len(phases)} recorded activities will be marked as the replay passes them.')
+    return helper
+
+
+def _print_assist(a) -> None:
+    p = a.payload()
+    probes = [c for c in p['calls'] if c['kind'] == 'probes']
+    ratings = [c for c in p['calls'] if c['kind'] == 'rating']
+    median = lambda xs: statistics.median(xs) if xs else 0
+    print(f"Live Assist: {len(probes)} probe calls (median {median([c['ms'] for c in probes]) / 1000:.1f} s), "
+          f"{len(p['suggestions'])} cards; {len(ratings)} rating calls "
+          f"(median {median([c['ms'] for c in ratings]) / 1000:.1f} s); cost ${p['cost']['total']:.3f} "
+          f"(probes ${p['cost']['probes']:.3f}, rating ${p['cost']['rating']:.3f}) -> {a.path}")

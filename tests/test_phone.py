@@ -427,7 +427,7 @@ class DeviceStoreTests(PhoneTestCase):
         device = reloaded.verify(made['token'])
         self.assertEqual(device['kind'], 'shortcut')
         self.assertEqual([d['id'] for d in reloaded.list()], [made['device_id']])
-        self.assertEqual(set(reloaded.list()[0]), {'id', 'name', 'kind', 'created', 'last_seen'})
+        self.assertEqual(set(reloaded.list()[0]), {'id', 'name', 'kind', 'created', 'last_seen', 'lead'})
 
     def test_verify_rejects_junk(self):
         self.store.create_token('x')

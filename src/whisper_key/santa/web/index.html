@@ -38,6 +38,24 @@
 </main>
 
 <main class="layout" id="mainPanel">
+  <!-- Live Assist (Mac window and paired phones): shown only while a live session runs with it on. -->
+  <section class="panel assist" id="assistPanel" hidden aria-label="Live Assist">
+    <div class="transcript-head">
+      <h2>Live Assist <small id="assistTitle"></small></h2>
+      <span id="assistSpend" class="hint"></span>
+    </div>
+    <p id="assistNote" class="hint" role="status" hidden></p>
+    <div id="assistSteps" class="assist-steps" aria-label="Activities: tap to start or finish"></div>
+    <ul id="assistCards" class="assist-cards" aria-live="polite"></ul>
+    <p id="assistNoCards" class="hint">Suggestions appear after a candidate finishes an answer.</p>
+    <div id="assistCoverage" class="assist-coverage"></div>
+    <div id="assistRatingBox" class="assist-rating" hidden>
+      <label class="check inline"><input type="checkbox" id="assistShowRating"> Show live rating (panel lead only)</label>
+      <table id="assistRating" hidden><thead><tr><th>Seat</th><th>Overall</th><th>Rec</th><th>Evidence</th><th></th></tr></thead><tbody></tbody></table>
+    </div>
+    <p class="hint">Suggestions come from the approved probe bank. The panel decides; ask, adapt or skip.</p>
+  </section>
+
   <section class="panel recorder" aria-label="Recorder">
     <div class="controls-row">
       <label class="field">
@@ -156,7 +174,10 @@
       <label class="field"><span>Group label</span>
         <input id="liveLabel" type="text" autocomplete="off" spellcheck="false" placeholder="2026-11-03_MNL_G4"></label>
       <label class="field"><span>Language spoken</span><select id="liveLanguageSel"></select></label>
+      <label class="field"><span>Track</span><select id="liveTrackSel">
+        <option value="team">Crew (team)</option><option value="manager">Managers</option></select></label>
     </div>
+    <label class="check"><input type="checkbox" id="liveAssistChk"> Live Assist: probe suggestions and live rating by Claude (sends the transcript text, never audio)</label>
     <label class="field"><span>Seats (optional): one per line, "1 Rose Ancineta"</span>
       <textarea id="liveRoster" rows="4" spellcheck="false" placeholder="1 Rose Ancineta&#10;2 Mark Cruz&#10;3 Ana Santos"></textarea></label>
     <div class="toolbar">

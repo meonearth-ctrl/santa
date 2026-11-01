@@ -73,6 +73,8 @@ def main(argv=None) -> int:
     parser.add_argument('--language', help='language mode (default: the watch-folder language)')
     parser.add_argument('--out', help='folder for the .live.json (default: the export folder)')
     parser.add_argument('--offline', action='store_true', help='also run the full offline pass afterwards')
+    parser.add_argument('--assist', choices=('team', 'manager'),
+                        help='with Live Assist for this track (calls Claude; costs money)')
     args = parser.parse_args(argv)
 
     if args.version:
@@ -81,7 +83,8 @@ def main(argv=None) -> int:
     if args.replay:
         logging.basicConfig(level=logging.WARNING)
         from .live import run_replay
-        return run_replay(args.replay, args.speed, args.label, args.roster, args.language, args.out, args.offline)
+        return run_replay(args.replay, args.speed, args.label, args.roster, args.language, args.out, args.offline,
+                          args.assist)
     if not _is_loopback(args.host):
         print('The Santa window only listens on this computer (127.0.0.1). For your phone, '
               'switch on Settings › iPhone access (HTTPS + pairing) instead.')

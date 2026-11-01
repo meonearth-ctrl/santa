@@ -776,7 +776,12 @@ async function refreshPhoneStatus() {
     span.textContent = `${d.name} (${d.kind === 'shortcut' ? 'Shortcut key' : 'browser'}) · paired ${new Date(d.created * 1000 || d.created).toLocaleDateString()}`;
     const del = document.createElement('button'); del.type = 'button'; del.className = 'secondary small danger-text'; del.textContent = 'Remove';
     del.onclick = async () => { await api('DELETE', '/api/phone/devices/' + d.id); refreshPhoneStatus(); };
-    li.append(span, del); list.append(li);
+    // The panel lead's phone may show Live Assist ratings (still off until they switch it on).
+    const lead = document.createElement('label'); lead.className = 'check inline small';
+    const leadBox = document.createElement('input'); leadBox.type = 'checkbox'; leadBox.checked = !!d.lead;
+    leadBox.onchange = async () => { await api('POST', '/api/phone/devices/' + d.id + '/lead', { lead: leadBox.checked }); refreshPhoneStatus(); };
+    lead.append(leadBox, document.createTextNode(' Panel lead'));
+    li.append(span, lead, del); list.append(li);
   }
   return st;
 }
@@ -865,7 +870,7 @@ function liveSeatLabel(seg, roster) {
 function renderLiveStatus(p) {
   const running = p && ['starting', 'recording', 'finishing'].includes(p.state);
   $('liveStartBtn').hidden = running; $('liveStopBtn').hidden = !running;
-  ['liveLabel', 'liveLanguageSel', 'liveRoster'].forEach((id) => { $(id).disabled = running; });
+  ['liveLabel', 'liveLanguageSel', 'liveRoster', 'liveTrackSel', 'liveAssistChk'].forEach((id) => { $(id).disabled = running; });
   if (!p) { $('liveStatus').textContent = 'Not running'; return; }
   const mins = Math.floor(p.audio_seconds / 60), secs = Math.floor(p.audio_seconds % 60);
   const lat = (p.latency_seconds && p.latency_seconds.segment) || {};
@@ -904,7 +909,8 @@ async function startLive() {
   const label = $('liveLabel').value.trim();
   if (!label) { showAlert('Give the group a label first, e.g. 2026-11-03_MNL_G4.'); $('liveLabel').focus(); return; }
   try {
-    const r = await api('POST', '/api/live/start', { label, roster: $('liveRoster').value, language: $('liveLanguageSel').value });
+    const r = await api('POST', '/api/live/start', { label, roster: $('liveRoster').value, language: $('liveLanguageSel').value,
+      track: $('liveTrackSel').value, assist: $('liveAssistChk').checked });
     live.label = r.session.label; live.since = null; $('liveLines').replaceChildren();
     renderLiveStatus(r.session); pollLive();
   } catch (e) { showAlert(e.message || 'Could not start the live session.'); }
@@ -923,7 +929,94 @@ async function resumeLiveView() {
   } catch (e) { /* live mode not available */ }
 }
 
+// ── Live Assist (Mac window and paired phones) ────────────────────────────
+// Polls /api/assist; the panel taps activities, marks cards Asked/Skip, and the
+// lead may switch on live ratings. Everything shown is built with textContent.
+const assistUi = { timer: null, shown: '' };
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text != null) node.textContent = text;
+  return node;
+}
+
+async function assistPost(path, body) {
+  try { renderAssist(await api('POST', '/api/assist/' + path, body)); }
+  catch (e) { showAlert(e.message || 'Live Assist did not accept that.'); }
+}
+
+function renderAssist(a) {
+  const panel = $('assistPanel');
+  panel.hidden = !a.active;
+  if (!a.active) return;
+  $('assistTitle').textContent = `${a.label} · ${a.track === 'manager' ? 'managers' : 'crew'}${a.state === 'running' ? '' : ' · ' + a.state}`;
+  $('assistSpend').textContent = `$${a.spend.session.toFixed(2)} of $${a.spend.session_cap} this session · $${a.spend.today.toFixed(2)} of $${a.spend.daily_cap} today`;
+  const note = a.capped || a.error;
+  $('assistNote').hidden = !note; $('assistNote').textContent = note ? '⚠ ' + note : '';
+  // Rebuild buttons only when something changed, so a tap never lands on a vanishing button.
+  const shown = JSON.stringify([a.steps, a.cards, a.gaps, a.quiet, a.can_rate, a.show_rating, a.rating]);
+  if (shown === assistUi.shown) return;
+  assistUi.shown = shown;
+  // Activity strip: pending -> start, running -> finish.
+  const steps = $('assistSteps'); steps.replaceChildren();
+  a.steps.forEach((st) => {
+    const b = el('button', st.status, (st.status === 'running' ? '● ' : '') + st.name);
+    b.type = 'button';
+    b.title = st.status === 'running' ? 'Tap to finish' : st.status === 'done' ? 'Done (tap to run again)' : 'Tap to start';
+    b.onclick = () => assistPost('activity', { id: st.id, action: st.status === 'running' ? 'finish' : 'start' });
+    steps.append(b);
+  });
+  // Suggestion cards, newest first.
+  const cards = $('assistCards'); cards.replaceChildren();
+  [...a.cards].reverse().forEach((c) => {
+    const li = el('li');
+    const head = el('div', 'card-head');
+    head.append(el('span', 'seat', '#' + c.seat), el('span', 'badge', c.competency));
+    if (c.label === 'after_activity') head.append(el('span', 'badge', 'Ask after this activity'));
+    const bar = el('div', 'toolbar');
+    const asked = el('button', 'record small', 'Asked'); asked.type = 'button';
+    asked.onclick = () => assistPost('card', { id: c.id, status: 'asked' });
+    const skip = el('button', 'secondary small', 'Skip'); skip.type = 'button';
+    skip.onclick = () => assistPost('card', { id: c.id, status: 'skipped' });
+    bar.append(asked, skip);
+    li.append(head, el('p', 'say', c.say), el('p', 'why', c.why), bar);
+    cards.append(li);
+  });
+  $('assistNoCards').hidden = a.cards.length > 0;
+  // Coverage: competencies with no evidence yet, and quiet seats.
+  const cov = $('assistCoverage'); cov.replaceChildren();
+  a.gaps.filter((g) => g.missing.length).forEach((g) => {
+    const row = el('div'); row.append(el('b', null, '#' + g.seat + ' needs: '));
+    g.missing.forEach((m) => row.append(el('span', 'chip', m)));
+    cov.append(row);
+  });
+  if (a.quiet.length) cov.append(el('div', null, 'Quiet so far: ' + a.quiet.map((n) => '#' + n).join(', ')));
+  // Live rating: lead only, behind the toggle.
+  $('assistRatingBox').hidden = !a.can_rate;
+  $('assistShowRating').checked = !!a.show_rating;
+  const table = $('assistRating'), body = table.querySelector('tbody');
+  table.hidden = !a.show_rating; body.replaceChildren();
+  (a.rating || []).forEach((r) => {
+    const tr = el('tr');
+    tr.append(el('td', null, '#' + r.seat), el('td', null, r.overall == null ? '–' : r.overall.toFixed(2)),
+      el('td', null, r.rec), el('td', null, r.evidence), el('td', null, r.oneLine));
+    body.append(tr);
+  });
+  if (a.show_rating && !(a.rating || []).length) {
+    const tr = el('tr'); const td = el('td', 'hint', 'No rating yet: it comes when an activity of 2+ minutes is finished.');
+    td.colSpan = 5; tr.append(td); body.append(tr);
+  }
+}
+
+async function pollAssist() {
+  clearTimeout(assistUi.timer);
+  try { renderAssist(await api('GET', '/api/assist')); } catch (e) { /* keep polling quietly */ }
+  assistUi.timer = setTimeout(pollAssist, 2000);
+}
+
 function wire() {
+  $('assistShowRating').onchange = () => assistPost('show-rating', { on: $('assistShowRating').checked });
   $('liveStartBtn').onclick = startLive;
   $('liveStopBtn').onclick = stopLive;
   $('recordBtn').onclick = () => (ui.state === 'recording' ? stopRecording(true) : startRecording('dictation'));
@@ -1077,6 +1170,7 @@ async function startApp() {
   }
   clearTimeout(statusTimer);
   pollStatus();
+  pollAssist();
 }
 
 (function init() {

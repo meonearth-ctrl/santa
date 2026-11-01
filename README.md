@@ -43,6 +43,28 @@ normal offline pass, which writes `<label>.json` + `.srt`: that stays the record
   does the same inside the running Santa.
 * Measured on the M5: 32-min group (G1 calibration) replayed in real time: each line is written a median **2.2 s** after its last word (90 % within 7.4 s); a piece is written 1.6 s after it ends (90 % within 2.1 s); the GPU takes ~1.1 s per piece. 99 % of lines got a seat; lines tagged by a number or name said agreed with the offline tags 6 of 7 times, `carry` lines only about half the time.
 
+### Live Assist (live interviews, optional)
+
+Tick **Live Assist** and pick the track (crew or managers) before **Start live session**.
+Claude (Sonnet 5.5) then suggests the next 1–2 questions from Hiring Right's approved
+probe bank after each candidate answer, and re-scores every seat as a silent third rater
+whenever the panel finishes an activity of 2+ minutes, and once at Stop. The panel sees
+it on their phones (Santa's iPhone page): the activity strip (tap to start or finish a
+step), suggestion cards with **Asked / Skip**, coverage gaps and quiet seats, and the
+spend. Live ratings show only on the Mac window and on a phone marked **Panel lead** in
+Settings › iPhone, and only after the lead switches them on.
+
+* Only transcript text goes to the Claude API; audio and video stay on the Mac. The key is
+  read from `~/.config/hiring-right/anthropic-key` and never sent to a phone.
+* Prompts, schemas and trigger rules are ported unchanged from `09_Live_Replay/replay.mjs`
+  and `rate.mjs` (`santa/assist_prompts.py`; a test compares them with the Node originals).
+* Budgets: $2 per session and $40 per day (Settings keys `assist_session_budget`,
+  `assist_daily_budget`); calls stop at a cap and the panel is told.
+* At Stop it writes `03_Transcripts/<label>.assist.json` (schema in `LIVE_ASSIST_SPEC.md`)
+  for Hiring Right to import.
+* Replay test: `santa --replay "<video>" --speed 4 --roster rosters.json --assist team`
+  (marks the recording's activities from `phases.json` as it passes them).
+
 **Start here:** [`docs/santa/README.md`](docs/santa/README.md) · Install:
 `santa-app/Install Santa.command` · Guide: [`docs/santa/USER_GUIDE.md`](docs/santa/USER_GUIDE.md) ·
 Measurements: [`docs/santa/EVALUATION.md`](docs/santa/EVALUATION.md)

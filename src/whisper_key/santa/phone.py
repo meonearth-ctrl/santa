@@ -565,12 +565,23 @@ class DeviceStore:
 
     @staticmethod
     def _public(rec) -> dict:
-        return {k: rec.get(k) for k in ('id', 'name', 'kind', 'created', 'last_seen')}
+        return dict({k: rec.get(k) for k in ('id', 'name', 'kind', 'created', 'last_seen')},
+                    lead=bool(rec.get('lead')))
 
     def list(self) -> list:
         with self._lock:
             return sorted((self._public(r) for r in self._devices.values()),
                           key=lambda r: r['created'] or 0)
+
+    def set_lead(self, device_id, lead: bool) -> bool:
+        """Mark the panel lead's phone: only a lead phone may show Live Assist ratings."""
+        with self._lock:
+            rec = self._devices.get(str(device_id))
+            if rec is None:
+                return False
+            rec['lead'] = bool(lead)
+            self._save()
+            return True
 
     def revoke(self, device_id) -> bool:
         with self._lock:

@@ -121,6 +121,22 @@ splitting and guards. Check on the Mac with `ollama pull gemma3:4b`.
 | Feed | `server._live_get` | `GET /api/live/<label>?since=` (lines with `end > since`, `next_since`); loopback Host check as for every request; refused in iPhone mode. |
 | Replay | `santa --replay FILE --speed N`, `POST /api/live/replay` | `FileSource` paces decoded audio at N× real time; latency = written − (clock start + line end / N). |
 
+## Added 2026-11-01: Live Assist (probes + live rating by Claude)
+
+| Feature | Where | How |
+|---|---|---|
+| Prompts & schemas | `santa/assist_prompts.py` | Word-for-word ports of `replay.mjs` (`systemFor` with the "hybrid" lines, `SCHEMA`) and `rate.mjs` (`systemFor`, `schemaFor`). `tests/test_assist.py` extracts the JS functions with Node and compares the output byte for byte when the Hiring Right folder is present. |
+| Probe trigger | `assist.ProbeTrigger` | `eventsOf` fed line by line; live, a silence is noticed when no line has come for 4 + 3 s of audio. |
+| Conversations | `assist.Conversation` | One append-only conversation per job on its own thread; system block and top-level `cache_control`; `output_config` effort + JSON schema; `client.beta.messages.create(..., betas=["server-side-fallback-2026-07-01"], fallbacks="default")`. The reply is appended back as returned. A failed call is taken back out and its lines go with the next call. |
+| Cards | `AssistSession._ask_probes` | Label `after_activity` while a briefing/intro/group activity/role-play is running; a newer card for a seat drops older ones; unseen cards older than 6 min are dropped. |
+| Ratings | `AssistSession._finish_activity`, `finish` | After a panel-finished activity of ≥ 2 min, and a final one at Stop. Overall = weighted mean (rate-report.mjs). |
+| Panel | `server._assist_view/_assist_action`, `web/app.js` | `/api/assist*` allowed for paired phones; `/api/live*` stays Mac-only. Ratings need the Mac window or a lead phone (`DeviceStore.set_lead`) and an explicit toggle. |
+| Spend | `assist.SpendLedger` | Per-call cost from usage (prices as in the prototypes); daily totals in `<santa home>/assist/spend.json`. |
+
+Measured (replay of G1 calibration, 32 min, 4×): 3 probe calls → 6 cards, 6 rating calls,
+$0.32. Fewer probe calls than the prototype's 10 for the same group: live seat tags are
+97 % "carry" (no voice separation live), so the "someone else speaks" signal is rare.
+
 ## Hardware findings (Apple M5, 16 GB, macOS 26.6)
 * CTranslate2 has no Metal backend → faster-whisper runs on CPU (int8).
   CT2's default uses 4 threads; 8 measured ~20 % faster → Santa uses cores−2 (max 8).

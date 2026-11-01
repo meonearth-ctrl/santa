@@ -292,6 +292,32 @@ class PhoneModeServerTests(unittest.TestCase):
         status, _, _ = self.req('GET', '/api/config', headers=dict(auth, Host='evil.example'))
         self.assertEqual(status, 421)
 
+    def test_live_assist_on_the_phone(self):
+        """Phones see cards and may tap activities; live interview control stays on the
+        Mac; only a phone marked lead may switch live ratings on."""
+        from types import SimpleNamespace
+        from whisper_key.santa import assist, live
+        from test_assist import FakeClient, tiny_config, SETTINGS, ROSTER
+        auth = self.pair()
+        self.svc.live = live.LiveManager(self.svc, os.path.join(self.tmp.name, 'live'))
+        helper = assist.AssistSession('G5', 'team', ROSTER, tiny_config(), FakeClient(), SETTINGS,
+                                      assist.SpendLedger(self.tmp.name), self.tmp.name, 'G5.wav')
+        self.svc.live.current = SimpleNamespace(assist=helper)
+        status, body, _ = self.req('GET', '/api/assist', headers=auth)
+        view = json.loads(body)
+        self.assertEqual((status, view['active'], view['can_rate']), (200, True, False))
+        status, body, _ = self.req('POST', '/api/assist/activity', {'id': 't1', 'action': 'start'}, headers=auth)
+        self.assertEqual(status, 200)
+        self.assertEqual(self.req('POST', '/api/assist/show-rating', {'on': True}, headers=auth)[0], 403)
+        for method, path in (('GET', '/api/live'), ('POST', '/api/live/stop'), ('POST', '/api/phone/devices/x/lead')):
+            self.assertEqual(self.req(method, path, {} if method == 'POST' else None, headers=auth)[0], 403, path)
+        # The Mac marks this phone as the lead: now it may show ratings.
+        self.access.devices.set_lead(self.access.devices.list()[0]['id'], True)
+        status, body, _ = self.req('POST', '/api/assist/show-rating', {'on': True}, headers=auth)
+        view = json.loads(body)
+        self.assertEqual((status, view['can_rate'], view['show_rating']), (200, True, True))
+        self.assertIn('rating', view)
+
     def test_shortcut_bearer_one_request(self):
         token = self.access.devices.create_token('Shortcut')['token']
         status, body, headers = self.req(
