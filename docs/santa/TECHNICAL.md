@@ -148,6 +148,19 @@ accented English guessed as a nearby language with English close behind stays En
 pieces are still unreliable: the CPU engine guessed Malay for the same 2.5 s. The CPU engine gets `multilingual=True` (re-detect per 30 s window).
 Exports and live files carry `languages` (e.g. `["en", "ar"]`). A switch inside one piece is not split.
 
+## Changed 2026-11-04: dictation written for emails and messages
+
+Dictation (`source=recording`) is polished for sending; watch-folder videos, live interviews and files stay
+word for word (unchanged rule: `VERBATIM_SOURCES`, `polish_files` off). Grammar polish needs Ollama, which
+was not installed, so dictation had only had the basic clean-up; Ollama 0.40 + `gemma3:4b` installed 3-Nov.
+- Prompt: sentence breaks, sentence case, writer's commas, paragraphs on topic change, greeting/sign-off
+  lines, lists only when clearly enumerated, spoken "new paragraph"/"new line", names from the user's list.
+- Rules (any model, also when Ollama is off): spoken breaks, English sentence case and "I", the user's
+  names list (Settings › vocabulary, `user_prompt`) with its capitals, email greeting/sign-off lines (>= 160 chars).
+- One request per 4000 chars (was 1500) so an email's layout is decided once; `num_ctx` 8192.
+- Measured on 4 sample dictations: gemma3:4b 2–5 s, all correct; gemma3:12b 25–48 s on 16 GB and added a
+  greeting/sign-off nobody said, so not used.
+
 ## Hardware findings (Apple M5, 16 GB, macOS 26.6)
 * CTranslate2 has no Metal backend → faster-whisper runs on CPU (int8).
   CT2's default uses 4 threads; 8 measured ~20 % faster → Santa uses cores−2 (max 8).

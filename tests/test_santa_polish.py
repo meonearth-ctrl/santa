@@ -165,13 +165,13 @@ class OllamaPolisherTests(unittest.TestCase):
         self.assertIn('Never translate', req['messages'][0]['content'])
         user = req['messages'][1]['content']
         self.assertIn('Language: English', user)
-        self.assertIn('Spell these exactly as given: Santa, Hiring Right', user)
+        self.assertIn('Names and terms (spell exactly like this): Santa, Hiring Right', user)
         self.assertIn('<transcript>\nso we meet at three\n</transcript>', user)
 
     def test_long_text_goes_in_pieces_and_comes_back_whole(self):
         text = ' '.join(f'this is sentence number {n}.' for n in range(400))
         out = self.polisher.polish(text, 'gemma3:4b')
-        self.assertGreater(len(self.ollama.requests), 3)
+        self.assertGreater(len(self.ollama.requests), 2)
         self.assertTrue(all(len(r['messages'][1]['content']) < polish.MAX_CHUNK_CHARS + 100
                             for r in self.ollama.requests))
         self.assertEqual(out.count('his is sentence number'), 400)     # nothing lost or doubled
@@ -349,3 +349,31 @@ class SettingsTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DictationFinishTests(unittest.TestCase):
+    """Sentence case and the user's names, even when the grammar model is not running."""
+
+    def test_sentence_case_and_capital_i(self):
+        out = polish.clean_text("hi sara. i think it went well. i'm sure! thanks", 'en')
+        self.assertEqual(out, "Hi sara. I think it went well. I'm sure! Thanks")
+
+    def test_names_get_the_users_spelling(self):
+        out = polish.clean_text('the kout food group meeting with hiring  right', 'en', 'Kout Food Group; Hiring Right')
+        self.assertEqual(out, 'The Kout Food Group meeting with Hiring Right')
+
+    def test_other_languages_are_not_recased(self):
+        self.assertEqual(polish.clean_text('bonjour. merci', 'fr'), 'Bonjour. merci')
+
+    def test_spoken_new_paragraph_becomes_a_break(self):
+        out = polish.clean_text('first we set up at 8. new paragraph if anyone is late message me', 'en')
+        self.assertEqual(out, 'First we set up at 8.\n\nIf anyone is late message me')
+
+    def test_email_gets_greeting_and_sign_off_lines(self):
+        body = ('I wanted to follow up on the interviews we did on Tuesday. We saw around 40 candidates '
+                'and about 12 of them are strong enough for the next round.')
+        out = polish.email_layout(f"Hi Sara, hope you're well. {body} Thanks and regards, Shouvik")
+        self.assertEqual(out, f"Hi Sara,\n\nHope you're well. {body}\n\nThanks and regards,\nShouvik")
+
+    def test_short_message_keeps_one_line(self):
+        self.assertEqual(polish.email_layout('Hi Sara, see you at 5. Thanks'), 'Hi Sara, see you at 5. Thanks')
