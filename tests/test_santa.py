@@ -326,7 +326,7 @@ class FakeAccelerator:
         self.guesses = list(guesses or [])         # (code, probability) per detect_language call
 
     def detect_language(self, samples):
-        return self.guesses.pop(0) if self.guesses else ('en', 0.99)
+        return self.guesses.pop(0) if self.guesses else ('en', 0.99, {'en': 0.99})
 
     def available(self): return True
     def ready(self): return True
@@ -366,7 +366,8 @@ class AcceleratorRoutingTests(unittest.TestCase):
         import unittest.mock as mock
         from whisper_key.santa import accel_cpp
         # English, then a shaky low-confidence guess (kept English), then confident Arabic.
-        accel = FakeAccelerator(guesses=[('en', 0.98), ('tl', 0.45), ('ar', 0.96)])
+        accel = FakeAccelerator(guesses=[('en', 0.98, {'en': 0.98}), ('tl', 0.45, {'tl': 0.45, 'en': 0.4}),
+                                         ('ar', 0.96, {'ar': 0.96, 'en': 0.01})])
         seen = []
         orig = accel.transcribe
         accel.transcribe = lambda samples, params, cancel_event=None, timestamps=False: (
@@ -389,6 +390,12 @@ class AcceleratorRoutingTests(unittest.TestCase):
                  [('en', 0.4), ('tl', 0.5), ('en', 0.9), ('ar', 0.95), ('en', 0.6), ('en', 0.8)]]
         self.assertEqual(picks, ['en', 'en', 'en', 'ar', 'ar', 'en'])
         self.assertEqual(tracker.seen, ['en', 'ar'])
+        # A short Arabic piece: only 43 % sure, but far ahead of English (test 4, 3-Nov).
+        self.assertEqual(tracker.choose('ar', 0.43, {'ar': 0.43, 'en': 0.17}), 'ar')
+        # Accented English guessed as Tagalog, with English close behind: stays English.
+        tracker = LanguageTracker()
+        tracker.choose('en', 0.9)
+        self.assertEqual(tracker.choose('tl', 0.45, {'tl': 0.45, 'en': 0.35}), 'en')
 
     def test_bad_piece_is_redone_on_cpu_only(self):
         import unittest.mock as mock

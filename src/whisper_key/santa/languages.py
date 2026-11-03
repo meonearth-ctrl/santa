@@ -192,21 +192,32 @@ def hinglish_strategies_for_ui() -> list:
 class LanguageTracker:
     """Auto-detect for audio that arrives in pieces (live sessions, long files
     split at pauses). Each piece is checked on its own, so a speaker who switches
-    from English to Arabic halfway is followed. A piece only moves away from the
-    current language when Whisper is sure of the new one: short accented pieces
-    are often guessed as a neighbouring language with low confidence."""
+    from English to Arabic halfway is followed. A piece moves away from the
+    current language only when Whisper clearly prefers the new one: either it is
+    sure (>= 70 %), or the new language leads the current one by a wide margin.
+    Short pieces (a few words) rarely reach 70 %, but a real switch still shows
+    as a clear lead; accented English guessed as a neighbouring language does not."""
 
     SWITCH_PROBABILITY = 0.7
+    LEAD_PROBABILITY = 0.3            # with a lead, the new language still needs this much
+    LEAD_FACTOR = 2.0                 # ... and at least twice the current language's probability
 
     def __init__(self):
         self.current = None
         self.seen = []                    # languages used, in order of first use
 
-    def choose(self, detected: Optional[str], probability: Optional[float]) -> Optional[str]:
-        """The language to transcribe this piece in, given Whisper's guess for it."""
-        if detected and (self.current is None or
-                         (detected != self.current and (probability or 0.0) >= self.SWITCH_PROBABILITY)):
-            self.current = detected
+    def choose(self, detected: Optional[str], probability: Optional[float],
+               probabilities: Optional[dict] = None) -> Optional[str]:
+        """The language to transcribe this piece in, given Whisper's guess for it
+        (and, when known, its probability for every language)."""
+        probability = probability or 0.0
+        if detected and detected != self.current:
+            current_p = (probabilities or {}).get(self.current, 0.0) if probabilities else None
+            sure = probability >= self.SWITCH_PROBABILITY
+            leads = (current_p is not None and probability >= self.LEAD_PROBABILITY
+                     and probability >= self.LEAD_FACTOR * current_p)
+            if self.current is None or sure or leads:
+                self.current = detected
         if self.current and self.current not in self.seen:
             self.seen.append(self.current)
         return self.current

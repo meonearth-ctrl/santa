@@ -120,13 +120,14 @@ class MetalAccelerator:
             self.status = {'state': 'error', 'message': f'GPU fast path failed to load ({type(exc).__name__}); using CPU.'}
 
     def detect_language(self, samples):
-        """Whisper's language guess for a piece: (code, probability)."""
+        """Whisper's language guess for a piece: (code, probability, {code: probability})."""
         if self._model is None:
             raise AcceleratorError('not loaded')
         import numpy as np
         with self._lock:
-            (code, probability), _ = self._model.auto_detect_language(np.ascontiguousarray(samples, dtype=np.float32))
-        return code, float(probability)
+            (code, probability), probabilities = self._model.auto_detect_language(
+                np.ascontiguousarray(samples, dtype=np.float32))
+        return code, float(probability), {k: float(v) for k, v in probabilities.items()}
 
     def transcribe(self, samples, params, cancel_event=None, timestamps: bool = False) -> dict:
         """Same result shape as models.run_transcription. Raises AcceleratorError

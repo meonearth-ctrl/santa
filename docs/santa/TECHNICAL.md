@@ -142,8 +142,10 @@ $0.32. Fewer probe calls than the prototype's 10 for the same group: live seat t
 Auto-detect used to decide the language on the first piece and keep it, so a session that moved from
 English to Arabic stayed "English". Now each piece is checked on its own (`languages.LanguageTracker`):
 live pieces (5–15 s) and the Metal pieces of long files (<= 28 s). A piece moves to a new language only
-when Whisper is at least 70 % sure, because short accented English is sometimes guessed as a nearby
-language with low confidence. The CPU engine gets `multilingual=True` (re-detect per 30 s window).
+when Whisper is at least 70 % sure, or the new language has >= 30 % and at least twice the current
+language's probability (test 4, 3-Nov: a 2.5 s Arabic reply scored ar 0.43 / en 0.17 on Metal). Short
+accented English guessed as a nearby language with English close behind stays English. Very short
+pieces are still unreliable: the CPU engine guessed Malay for the same 2.5 s. The CPU engine gets `multilingual=True` (re-detect per 30 s window).
 Exports and live files carry `languages` (e.g. `["en", "ar"]`). A switch inside one piece is not split.
 
 ## Hardware findings (Apple M5, 16 GB, macOS 26.6)

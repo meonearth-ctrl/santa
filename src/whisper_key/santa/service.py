@@ -232,15 +232,15 @@ class TranscriptionService:
         return raw
 
     def _detect_language(self, samples, s: dict, cancel_event=None):
-        """(code, probability) for one piece: Metal when ready, else the CPU model."""
+        """(code, probability, {code: probability}) for one piece: Metal when ready, else the CPU model."""
         if self._accel_wanted(s) and self.accel.ready():
             try:
                 return self.accel.detect_language(samples)
             except accel_cpp.AcceleratorError:
                 pass
         model = self.models.wait_ready(s['model'], cancel_event=cancel_event)
-        code, probability, _ = model.detect_language(samples)
-        return code, probability
+        code, probability, ranked = model.detect_language(samples)
+        return code, probability, dict(ranked)
 
     # ── Worker ───────────────────────────────────────────────────────────
     def _work(self, jobs_queue) -> None:
@@ -472,8 +472,8 @@ class TranscriptionService:
         for n, (start, end) in enumerate(chunks, 1):
             piece = samples[start:end]
             if tracker is not None:
-                code, probability = self._detect_language(piece, self.settings.get(), job.cancel_event)
-                chunk_params = replace(params, language=tracker.choose(code, probability))
+                guess = self._detect_language(piece, self.settings.get(), job.cancel_event)
+                chunk_params = replace(params, language=tracker.choose(*guess))
             try:
                 part = self.accel.transcribe(piece, chunk_params, cancel_event=job.cancel_event,
                                              timestamps=timestamps)
