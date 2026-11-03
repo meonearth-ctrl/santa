@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 from . import export, seat_tagger
+from .languages import LanguageTracker
 from .audio_input import SAMPLE_RATE
 
 logger = logging.getLogger(__name__)
@@ -244,7 +245,7 @@ class FileSource:
 class LiveSession:
     """Source -> endpointer -> transcriber -> seat tags -> <label>.live.json.
     Three threads keep the stages apart, so cutting the next piece never waits
-    for the GPU. `transcribe(samples, language)` returns Santa's raw result
+    for the GPU. `transcribe(samples, tracker)` returns Santa's raw result
     ({'segments': [...piece-relative...], 'detected_language', 'engine'})."""
 
     def __init__(self, label: str, source, transcribe, export_dir: str, language_mode: str = 'en',
@@ -267,7 +268,8 @@ class LiveSession:
         self.latencies, self.piece_latencies = [], []
         self.transcribe_times = []                # GPU/CPU seconds per piece (diagnostics)
         self.cpu_pieces = 0                       # pieces the GPU output checks sent to the CPU engine
-        self.engine, self.language = None, None
+        self.engine = None
+        self.languages = LanguageTracker()   # auto-detect: follows a switch mid-session
         self.offline_job_id = None
         self.assist = None                        # AssistSession when Live Assist is on
         self.wants_offline = False                # run the full offline pass after Stop
@@ -372,14 +374,13 @@ class LiveSession:
     def _transcribe_piece(self, start_sample: int, samples) -> None:
         offset = start_sample / SAMPLE_RATE
         began = time.time()
-        raw = self.transcribe(samples, self.language)
+        raw = self.transcribe(samples, self.languages)
         transcribe_seconds = time.time() - began
         engine = raw.get('engine') or ''
         if 'CPU' in engine:
             self.cpu_pieces += 1
         if engine and (self.engine is None or 'CPU' not in engine):   # name the main engine, not the fallback
             self.engine = engine
-        self.language = self.language or raw.get('detected_language')
         new = []
         for seg in raw.get('segments') or []:
             text = (seg.get('text') or '').strip()
@@ -421,7 +422,8 @@ class LiveSession:
             'source': self.label,
             'model': self.model,
             'engine': (self.engine or 'pending') + ' · live',
-            'language': self.language,
+            'language': self.languages.seen[0] if self.languages.seen else None,
+            'languages': list(self.languages.seen),
             'audio_seconds': round(self._samples_in / SAMPLE_RATE, 2),
             'live': True,
             'state': self.state,
@@ -558,8 +560,8 @@ class LiveManager:
         return {'current': current, 'recent': [s.label for s in self._recent.values()]}
 
     def _transcriber(self, language_mode: str):
-        def transcribe(samples, language):
-            return self.service.transcribe_clip(samples, language_mode, language)
+        def transcribe(samples, tracker):
+            return self.service.transcribe_clip(samples, language_mode, tracker)
         return transcribe
 
     def _assist_for(self, session: LiveSession, track: str, s: dict, export_dir: str, source_name: str):
@@ -654,7 +656,7 @@ def run_replay(path: str, speed: float = 1.0, label: str = None, roster_path: st
     language = language or s['watch_language']
     out_dir = out_dir or s['export_dir'] or '~/Documents/Hiring Right/03_Transcripts'
     source = FileSource(os.path.expanduser(path), speed)
-    session = LiveSession(label, source, lambda samples, lang: service.transcribe_clip(samples, language, lang),
+    session = LiveSession(label, source, lambda samples, tracker: service.transcribe_clip(samples, language, tracker),
                           out_dir, language, roster, audio_path=None, model=s['model'])
     session.replay_source = os.path.expanduser(path)
     if assist_track:

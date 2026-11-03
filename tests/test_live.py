@@ -271,7 +271,7 @@ def scripted_transcriber(lines):
     """Each call returns the next line, as one segment spanning the piece."""
     queue_ = list(lines)
 
-    def transcribe(samples, language):
+    def transcribe(samples, tracker):
         text = queue_.pop(0) if queue_ else ''
         return {'segments': [{'start': 0.0, 'end': round(len(samples) / RATE, 2), 'text': ' ' + text}],
                 'detected_language': 'en', 'engine': 'fake engine'}

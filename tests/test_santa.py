@@ -321,8 +321,12 @@ class ServiceTests(unittest.TestCase):
 
 class FakeAccelerator:
     """Stands in for the Metal fast path; can be told to produce damaged text."""
-    def __init__(self, text='fast text', damaged=False):
+    def __init__(self, text='fast text', damaged=False, guesses=None):
         self.calls, self.text, self.damaged = 0, text, damaged
+        self.guesses = list(guesses or [])         # (code, probability) per detect_language call
+
+    def detect_language(self, samples):
+        return self.guesses.pop(0) if self.guesses else ('en', 0.99)
 
     def available(self): return True
     def ready(self): return True
@@ -358,21 +362,33 @@ class AcceleratorRoutingTests(unittest.TestCase):
         self.assertIn('Metal', r['engine'])
         self.assertEqual(svc._transcribe_fn.calls, [])
 
-    def test_long_clip_is_split_and_language_locked(self):
+    def test_long_clip_follows_a_language_switch(self):
         import unittest.mock as mock
         from whisper_key.santa import accel_cpp
-        accel = FakeAccelerator()
+        # English, then a shaky low-confidence guess (kept English), then confident Arabic.
+        accel = FakeAccelerator(guesses=[('en', 0.98), ('tl', 0.45), ('ar', 0.96)])
         seen = []
         orig = accel.transcribe
         accel.transcribe = lambda samples, params, cancel_event=None, timestamps=False: (
-            seen.append((len(samples), params.language)) or dict(orig(samples, params), detected_language='hi'))
+            seen.append((len(samples), params.language)) or orig(samples, params))
         svc = self._svc(accel)
-        with mock.patch.object(accel_cpp, 'plan_chunks', return_value=[(0, 16000 * 20), (16000 * 21, 16000 * 40)]):
-            r = svc.transcribe_sync(make_wav(40.0), 'r.wav', 'auto', timeout=30)['result']
-        self.assertEqual([n for n, _ in seen], [16000 * 20, 16000 * 19])
-        self.assertEqual([lang for _, lang in seen], [None, 'hi'])   # detected once, then fixed
-        self.assertIn('2 pieces', r['engine'])
+        chunks = [(0, 16000 * 20), (16000 * 21, 16000 * 40), (16000 * 41, 16000 * 60)]
+        with mock.patch.object(accel_cpp, 'plan_chunks', return_value=chunks):
+            r = svc.transcribe_sync(make_wav(60.0), 'r.wav', 'auto', timeout=30)['result']
+        self.assertEqual([n for n, _ in seen], [16000 * 20, 16000 * 19, 16000 * 19])
+        self.assertEqual([lang for _, lang in seen], ['en', 'en', 'ar'])
+        self.assertEqual(r['languages'], ['en', 'ar'])
+        self.assertEqual(r['detected_language_name'], 'English + Arabic')
+        self.assertIn('3 pieces', r['engine'])
         self.assertEqual(svc._transcribe_fn.calls, [])
+
+    def test_language_tracker_switches_only_when_sure(self):
+        from whisper_key.santa.languages import LanguageTracker
+        tracker = LanguageTracker()
+        picks = [tracker.choose(code, p) for code, p in
+                 [('en', 0.4), ('tl', 0.5), ('en', 0.9), ('ar', 0.95), ('en', 0.6), ('en', 0.8)]]
+        self.assertEqual(picks, ['en', 'en', 'en', 'ar', 'ar', 'en'])
+        self.assertEqual(tracker.seen, ['en', 'ar'])
 
     def test_bad_piece_is_redone_on_cpu_only(self):
         import unittest.mock as mock

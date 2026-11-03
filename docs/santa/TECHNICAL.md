@@ -137,6 +137,15 @@ Measured (replay of G1 calibration, 32 min, 4×): 3 probe calls → 6 cards, 6 r
 $0.32. Fewer probe calls than the prototype's 10 for the same group: live seat tags are
 97 % "carry" (no voice separation live), so the "someone else speaks" signal is rare.
 
+## Changed 2026-11-03: auto-detect follows a language switch
+
+Auto-detect used to decide the language on the first piece and keep it, so a session that moved from
+English to Arabic stayed "English". Now each piece is checked on its own (`languages.LanguageTracker`):
+live pieces (5–15 s) and the Metal pieces of long files (<= 28 s). A piece moves to a new language only
+when Whisper is at least 70 % sure, because short accented English is sometimes guessed as a nearby
+language with low confidence. The CPU engine gets `multilingual=True` (re-detect per 30 s window).
+Exports and live files carry `languages` (e.g. `["en", "ar"]`). A switch inside one piece is not split.
+
 ## Hardware findings (Apple M5, 16 GB, macOS 26.6)
 * CTranslate2 has no Metal backend → faster-whisper runs on CPU (int8).
   CT2's default uses 4 threads; 8 measured ~20 % faster → Santa uses cores−2 (max 8).

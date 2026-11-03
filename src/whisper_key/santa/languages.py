@@ -186,3 +186,27 @@ def language_name(mode_key: str, detected: Optional[str] = None) -> str:
 
 def hinglish_strategies_for_ui() -> list:
     return [{'key': s.key, 'label': s.label} for s in HINGLISH_STRATEGIES.values()]
+
+
+# ── Auto-detect across a long recording ──────────────────────────────────────
+class LanguageTracker:
+    """Auto-detect for audio that arrives in pieces (live sessions, long files
+    split at pauses). Each piece is checked on its own, so a speaker who switches
+    from English to Arabic halfway is followed. A piece only moves away from the
+    current language when Whisper is sure of the new one: short accented pieces
+    are often guessed as a neighbouring language with low confidence."""
+
+    SWITCH_PROBABILITY = 0.7
+
+    def __init__(self):
+        self.current = None
+        self.seen = []                    # languages used, in order of first use
+
+    def choose(self, detected: Optional[str], probability: Optional[float]) -> Optional[str]:
+        """The language to transcribe this piece in, given Whisper's guess for it."""
+        if detected and (self.current is None or
+                         (detected != self.current and (probability or 0.0) >= self.SWITCH_PROBABILITY)):
+            self.current = detected
+        if self.current and self.current not in self.seen:
+            self.seen.append(self.current)
+        return self.current

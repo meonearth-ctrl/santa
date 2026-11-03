@@ -27,7 +27,7 @@ import re
 from . import audio_input, textproc, accel_cpp, export, links, polish, speakers, translate
 from .history import HistoryStore
 from .languages import (LANGUAGE_MODES, WHISPER_LANGUAGE_NAMES, resolve_decode_params,
-                        UnknownLanguageMode, language_name)
+                        UnknownLanguageMode, language_name, LanguageTracker)
 from .models import ModelManager, ModelUnavailable, TranscriptionCancelled, run_transcription
 from .romanize import contains_devanagari, romanize_hinglish
 from .settings import SettingsStore, upload_limit_bytes, duration_limit_seconds
@@ -212,15 +212,15 @@ class TranscriptionService:
             time.sleep(0.05)
         return job.public()
 
-    def transcribe_clip(self, samples, language_mode: str, language: str = None) -> dict:
+    def transcribe_clip(self, samples, language_mode: str, tracker: LanguageTracker = None) -> dict:
         """One short piece (<= 28 s) straight away, outside the job queues: used by
         live interview sessions. Same engine choice as a job (Metal GPU when ready,
-        else the CPU model), timestamps on, no clean-up. `language` pins the Whisper
-        language once auto-detect has decided it, so pieces can't flip language."""
+        else the CPU model), timestamps on, no clean-up. With auto-detect, `tracker`
+        picks this piece's language, so a session can move from English to Arabic."""
         s = self.settings.get()
         params = resolve_decode_params(language_mode, s['hinglish_strategy'], s['user_prompt'])
-        if language and params.language is None and not params.multilingual:
-            params = replace(params, language=language)
+        if tracker is not None and params.language is None and not params.multilingual:
+            params = replace(params, language=tracker.choose(*self._detect_language(samples, s)))
         if self._accel_wanted(s) and self.accel.ready() and not params.multilingual:
             try:
                 return self.accel.transcribe(samples, params, timestamps=True)
@@ -230,6 +230,17 @@ class TranscriptionService:
         raw = self._transcribe_fn(model, samples, params, beam_size=s['beam_size'], vad_filter=s['vad_filter'])
         raw.setdefault('engine', 'faster-whisper · CPU')
         return raw
+
+    def _detect_language(self, samples, s: dict, cancel_event=None):
+        """(code, probability) for one piece: Metal when ready, else the CPU model."""
+        if self._accel_wanted(s) and self.accel.ready():
+            try:
+                return self.accel.detect_language(samples)
+            except accel_cpp.AcceleratorError:
+                pass
+        model = self.models.wait_ready(s['model'], cancel_event=cancel_event)
+        code, probability, _ = model.detect_language(samples)
+        return code, probability
 
     # ── Worker ───────────────────────────────────────────────────────────
     def _work(self, jobs_queue) -> None:
@@ -294,7 +305,10 @@ class TranscriptionService:
             job.state = 'waiting_model'
             model = self.models.wait_ready(s['model'], cancel_event=job.cancel_event)
             job.state, job.progress = 'transcribing', 0.0
-            raw = self._transcribe_fn(model, decoded.samples, params, beam_size=s['beam_size'],
+            # Auto-detect on the CPU engine: let faster-whisper re-detect per 30 s
+            # window, so a recording that changes language part way is followed.
+            cpu_params = replace(params, multilingual=True) if params.language is None else params
+            raw = self._transcribe_fn(model, decoded.samples, cpu_params, beam_size=s['beam_size'],
                                       vad_filter=s['vad_filter'], cancel_event=job.cancel_event,
                                       on_progress=progress)
             raw.setdefault('engine', 'faster-whisper · CPU')
@@ -450,10 +464,16 @@ class TranscriptionService:
         chunks = accel_cpp.plan_chunks(samples)
         if not chunks:
             raise accel_cpp.AcceleratorError('no speech regions found for chunking')
-        segments, seconds, detected, redone = [], 0.0, None, 0
+        segments, seconds, redone = [], 0.0, 0
+        # Auto-detect: each piece gets its own language check, so a recording that
+        # moves from English to Arabic is followed (see LanguageTracker).
+        tracker = LanguageTracker() if params.language is None and not params.multilingual else None
         chunk_params = replace(params)
         for n, (start, end) in enumerate(chunks, 1):
             piece = samples[start:end]
+            if tracker is not None:
+                code, probability = self._detect_language(piece, self.settings.get(), job.cancel_event)
+                chunk_params = replace(params, language=tracker.choose(code, probability))
             try:
                 part = self.accel.transcribe(piece, chunk_params, cancel_event=job.cancel_event,
                                              timestamps=timestamps)
@@ -463,11 +483,6 @@ class TranscriptionService:
                 logger.info('job %s: piece %d/%d redone on CPU (%s)', job.id, n, len(chunks), exc)
                 part = self._cpu_piece(piece, chunk_params, job)
                 redone += 1
-            if chunk_params.language is None and part.get('detected_language'):
-                # Auto-detect: decide the language once, on the first piece, so
-                # later pieces can't flip language mid-document.
-                chunk_params = replace(chunk_params, language=part['detected_language'])
-            detected = detected or part.get('detected_language')
             offset = start / 16000.0
             for seg in part['segments']:                 # piece-relative -> file times
                 segments.append({'start': round(seg['start'] + offset, 2),
@@ -475,7 +490,9 @@ class TranscriptionService:
             seconds += part['transcribe_seconds']
             job.progress = n / len(chunks)
         note = f', {redone} redone on CPU' if redone else ''
-        return {'segments': segments, 'detected_language': detected, 'language_probability': None,
+        languages = tracker.seen if tracker is not None else [params.language]
+        return {'segments': segments, 'detected_language': languages[0] if languages else None,
+                'languages': languages, 'language_probability': None,
                 'transcribe_seconds': round(seconds, 2),
                 'engine': f'whisper.cpp · Metal GPU ({len(chunks)} pieces split at pauses{note})'}
 
@@ -520,6 +537,7 @@ class TranscriptionService:
         text, romanized = _output_text(native, job, s)
         mode = LANGUAGE_MODES[job.language_mode]
         detected = raw.get('detected_language')
+        languages = raw.get('languages') or ([detected] if detected else [])
         return {
             'text': text,
             'native_text': native,
@@ -529,7 +547,8 @@ class TranscriptionService:
             'language_mode': job.language_mode,
             'whisper_language': params.language,
             'detected_language': detected,
-            'detected_language_name': WHISPER_LANGUAGE_NAMES.get(detected, detected),
+            'detected_language_name': ' + '.join(WHISPER_LANGUAGE_NAMES.get(code, code) for code in languages),
+            'languages': languages,           # more than one when auto-detect followed a switch
             'language_probability': raw.get('language_probability'),
             'rtl': textproc.is_rtl_dominant(text),
             'script_warning': textproc.script_warning(raw_text, mode.script),

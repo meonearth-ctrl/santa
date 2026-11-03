@@ -69,6 +69,7 @@ def write_transcript(folder: str, source_name: str, result: dict) -> list:
         'source': os.path.basename(source_name),
         'model': result.get('model'),
         'language': result.get('detected_language') or result.get('whisper_language'),
+        'languages': result.get('languages') or [],
         'engine': result.get('engine'),
         'audio_seconds': result.get('audio_seconds'),
         'segments': segments,
