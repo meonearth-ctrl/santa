@@ -109,10 +109,17 @@ jobs:
           if (Test-Path "$app\python") { throw 'program files left behind' }
           $docs = [Environment]::GetFolderPath('MyDocuments')
           if (-not (Test-Path "$docs\Hiring Right\03_Transcripts\G1.json")) { throw 'uninstall touched the transcripts' }
+      # upload-artifact needs one common root folder, so gather the logs first.
+      - name: Collect logs
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force ci-logs | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\santa.*" ci-logs -ErrorAction SilentlyContinue
+          Copy-Item "$env:APPDATA\Santa\logs\*" ci-logs -ErrorAction SilentlyContinue
+          Copy-Item "$env:APPDATA\Santa\settings.json" ci-logs -ErrorAction SilentlyContinue
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: santa-windows-logs
-          path: |
-            ${{ runner.temp }}/santa.*
-            ~/AppData/Roaming/Santa/logs
+          path: ci-logs
