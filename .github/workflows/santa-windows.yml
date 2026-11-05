@@ -27,7 +27,11 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r santa-app/windows/requirements-windows.txt pytest
-      - run: python -m pytest -q tests/test_santa_windows.py tests/test_santa.py
+      # The desktop-bridge test needs the hotkey dictation app's dependencies,
+      # which Santa for Windows doesn't ship.
+      - run: >-
+          python -m pytest -q tests/test_santa_windows.py tests/test_santa.py
+          --deselect tests/test_santa.py::DesktopBridgeTests::test_whisper_local_selects_bridge
         env:
           PYTHONPATH: src
 
@@ -44,7 +48,7 @@ jobs:
         shell: pwsh
         run: |
           pip install pillow
-          $env:PATH = "C:\Program Files (x86)\NSIS;$env:PATH"
+          choco install nsis -y --no-progress | Out-Null
           python santa-app/windows/build_windows.py --out "$env:RUNNER_TEMP\out" --skip-zip
       - name: Install silently (per user, no admin)
         shell: pwsh

@@ -155,8 +155,11 @@ def build_nsis(work: Path, out: Path, version: str) -> Path:
     defines = [f'-DVERSION={version}', '-DPAYLOAD=payload', f'-DOUTFILE={exe_name}']
     shutil.copy(HERE / 'installer.nsi', work / 'installer.nsi')
     log('Packing the installer with NSIS (takes a few minutes: LZMA over ~350 MB)')
-    if shutil.which('makensis'):
-        run(['makensis', '-V2', *defines, 'installer.nsi'], cwd=work)
+    makensis = shutil.which('makensis') or next(
+        (p for p in (r'C:\Program Files (x86)\NSIS\makensis.exe', r'C:\Program Files\NSIS\makensis.exe')
+         if Path(p).exists()), None)
+    if makensis:
+        run([makensis, '-V2', *defines, 'installer.nsi'], cwd=work)
     else:
         ensure_nsis_image()
         run(['docker', 'run', '--rm', '-v', f'{work}:/w', '-w', '/w', NSIS_IMAGE,
