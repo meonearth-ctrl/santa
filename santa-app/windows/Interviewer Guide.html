@@ -1,0 +1,73 @@
+<!doctype html>
+<!-- santa-app/windows/Interviewer Guide.html
+     One-page guide for interviewers using Santa for Windows. Printed to PDF by
+     build_windows.py (Chrome headless) next to the installer. Keep it to one A4 page. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Santa for Windows: Interviewer Guide</title>
+<style>
+  @page { size: A4; margin: 13mm 14mm; }
+  body { font: 10.2pt/1.38 "Segoe UI", -apple-system, Helvetica, Arial, sans-serif; color: #1d2433; margin: 0; }
+  h1 { font-size: 18pt; margin: 0 0 2px; color: #b3261e; }
+  .sub { color: #5b6475; margin: 0 0 10px; }
+  h2 { font-size: 11.5pt; margin: 12px 0 4px; padding-bottom: 2px; border-bottom: 1.5px solid #e3e6ec; }
+  ol, ul { margin: 3px 0 3px 18px; padding: 0; }
+  li { margin: 2px 0; }
+  .path { font-family: Consolas, Menlo, monospace; font-size: 9.4pt; background: #f2f4f7; padding: 0 3px; border-radius: 3px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 18px; }
+  table { border-collapse: collapse; width: 100%; font-size: 9.6pt; }
+  td { border-top: 1px solid #e3e6ec; padding: 3px 6px 3px 0; vertical-align: top; }
+  td:first-child { width: 36%; font-weight: 600; }
+  .note { background: #fff6e5; border-left: 3px solid #f0a020; padding: 5px 8px; margin: 6px 0; }
+  .foot { color: #5b6475; font-size: 8.8pt; margin-top: 10px; }
+</style>
+</head>
+<body>
+<h1>Santa for Windows: Interviewer Guide</h1>
+<p class="sub">Santa turns your interview recordings into transcripts on your own laptop. Videos never leave the computer. You upload the transcript to the Hiring Right Kout app, which does the scoring.</p>
+
+<h2>1 · Install (once, about 10 minutes)</h2>
+<ol>
+  <li>Plug in the laptop and stay on the internet: the speech model (about 1.6 GB) is downloaded once.</li>
+  <li>Double-click <b>Santa-Setup.exe</b>. If Windows says <i>"Windows protected your PC"</i>, click <b>More info → Run anyway</b>. No administrator password is needed.</li>
+  <li>Keep all the ticks and click <b>Install</b>. A black window shows the model download; let it finish.</li>
+  <li>Santa opens in your web browser and a <b>Santa icon</b> appears in the taskbar next to the clock (click <b>^</b> if you don't see it). From now on Santa starts by itself when you sign in.</li>
+</ol>
+
+<h2>2 · After each interview</h2>
+<ol>
+  <li>Name the video <span class="path">date_city_group</span>, e.g. <span class="path">2026-11-30_KOL_G1.mp4</span> (mp4, mov, m4a and wav all work, up to 120 minutes).</li>
+  <li>Copy it into <span class="path">Documents › Hiring Right › 02_Batch_Videos</span>.</li>
+  <li>Wait. Santa starts once the copy has finished. On a normal laptop a 60-minute video can take 30–60 minutes; with an NVIDIA graphics card it is much faster. Keep the laptop plugged in. Santa stops it from sleeping, but don't close the lid.</li>
+  <li>Open <span class="path">Documents › Hiring Right › 03_Transcripts</span>. You will find two files with the video's name:
+    <b>.json</b> (upload this to the Hiring Right Kout app) and <b>.srt</b> (the same text with times, for reading).</li>
+</ol>
+<div class="note">Shortcut: right-click the Santa tray icon to open the <b>Videos</b> or <b>Transcripts</b> folder. To see progress, click <b>Open Santa</b>. You can also drag a video onto the Santa page; the same files are saved.</div>
+
+<div class="cols">
+<div>
+<h2>3 · If something goes wrong</h2>
+<table>
+  <tr><td>No transcript appears</td><td>Is the Santa icon in the tray? If not, open <b>Santa</b> from the desktop or Start menu, then wait.</td></tr>
+  <tr><td>A file <span class="path">.error.txt</span> appears</td><td>Open it: it says why (e.g. no sound, file too long). Fix it and copy the video in again.</td></tr>
+  <tr><td>"Model is downloading"</td><td>The first start downloads the model if set-up couldn't. Connect to the internet once.</td></tr>
+  <tr><td>Very slow</td><td>Close other heavy apps. Several videos are done one after another, not at once.</td></tr>
+  <tr><td>Antivirus blocks Santa</td><td>Ask IT to allow <span class="path">%LOCALAPPDATA%\Programs\Santa</span>.</td></tr>
+</table>
+</div>
+<div>
+<h2>4 · Good to know</h2>
+<ul>
+  <li><b>Private:</b> after set-up Santa works offline. Audio, video and text stay on this laptop.</li>
+  <li>Santa never moves or deletes your videos. Delete them yourself once all raters have scored, as Hiring Right asks.</li>
+  <li>The transcript is in English. Speaker labels ("Speaker 1"…) are a guess; Hiring Right matches candidates by the number they say.</li>
+  <li>Need about 4 GB of free disk space.</li>
+  <li><b>Remove Santa:</b> Settings › Apps › <i>Santa (offline transcription)</i> › Uninstall. Your Hiring Right folder is kept.</li>
+</ul>
+</div>
+</div>
+
+<p class="foot">Santa for Windows · offline transcription for Hiring Right · questions: your Hiring Right coordinator. Please send the file <span class="path">%APPDATA%\Santa\logs\santa.log</span> with any problem report (it contains no interview text).</p>
+</body>
+</html>

@@ -13,3 +13,4 @@ built on Whisper Local and running entirely on your Mac.
 | [EVALUATION.md](EVALUATION.md) | measured speed & accuracy, Hinglish evidence, known limitations |
 | [TECHNICAL.md](TECHNICAL.md) | what changed in the repository and why |
 | [PHASE2.md](PHASE2.md) | plan for using Santa from your phone |
+| [WINDOWS.md](WINDOWS.md) | Santa for Windows: installer build, design, test plan, what is not yet verified on Windows |

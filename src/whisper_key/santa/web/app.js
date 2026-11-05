@@ -75,6 +75,7 @@ async function loadConfig() {
   ui.settings = ui.config.settings;
   ui.client = ui.config.client;
   document.body.classList.toggle('is-phone', ui.client === 'phone');
+  adaptToHostOs();
   const langSel = $('languageSel');
   langSel.innerHTML = '';
   for (const l of ui.config.languages) langSel.add(new Option(l.label, l.key));
@@ -114,11 +115,37 @@ async function loadConfig() {
   $('historyBtn').hidden = !ui.settings.history_enabled;
 }
 
+// ── Windows wording ─────────────────────────────────────────────────────────
+// The page was written for the Mac. On a Windows PC, say "this PC", show Ctrl/Alt
+// instead of ⌘/⌥, and describe the NVIDIA GPU engine instead of the Apple one.
+function hostName() { return ui.config && ui.config.host_os === 'windows' ? 'This PC' : 'Your Mac'; }
+
+function adaptToHostOs() {
+  if (ui.config.host_os !== 'windows' || ui.client !== 'mac' || document.body.dataset.os) return;
+  document.body.dataset.os = 'windows';
+  const swaps = [[/your Mac/g, 'this PC'], [/this Mac/g, 'this PC'], [/on the Mac/g, 'on this PC'],
+                 [/⌘\s?/g, 'Ctrl+'], [/⌥\s?/g, 'Alt+']];
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    let text = node.nodeValue;
+    for (const [re, to] of swaps) text = text.replace(re, to);
+    if (text !== node.nodeValue) node.nodeValue = text;
+  }
+  for (const el of document.querySelectorAll('[title]')) {
+    el.title = el.title.replace(/⌥/g, 'Alt+').replace(/⌘/g, 'Ctrl+');
+  }
+  const gpu = ui.config.gpu || {};
+  const auto = $('engineSel').querySelector('option[value="auto"]');
+  auto.textContent = 'Automatic — NVIDIA GPU when ready, CPU otherwise';
+  const hint = $('engineField').nextElementSibling;
+  if (hint) hint.textContent = gpu.reason ? `GPU: ${gpu.reason}` : '';
+}
+
 function formatMB(mb) { return mb >= 1000 ? (mb / 1000).toFixed(1) + ' GB' : mb + ' MB'; }
 
 function updateModelNote() {
   const m = ui.config.models.find((x) => x.key === $('modelSel').value);
-  $('modelNote').textContent = m ? `${m.note} Download ≈ ${formatMB(m.download_mb)} (once), memory ≈ ${m.ram_gb} GB. Your Mac has ${ui.config.ram_gb} GB.` : '';
+  $('modelNote').textContent = m ? `${m.note} Download ≈ ${formatMB(m.download_mb)} (once), memory ≈ ${m.ram_gb} GB. ${hostName()} has ${ui.config.ram_gb} GB.` : '';
 }
 
 function fillSettingsForm() {
@@ -128,7 +155,7 @@ function fillSettingsForm() {
   if (ui.client === 'phone') return;
   $('modelSel').value = s.model;
   $('engineSel').value = s.engine;
-  $('engineField').hidden = !ui.config.accelerator_available;
+  $('engineField').hidden = !(ui.config.accelerator_available || (ui.config.gpu && ui.config.gpu.gpus > 0));
   $('strategySel').value = s.hinglish_strategy;
   $('cleanupChk').checked = s.cleanup;
   $('vadChk').checked = s.vad_filter;
@@ -444,7 +471,7 @@ function renderResultDetails(r, jobId) {
   for (const [k, v] of rows) { const dt = document.createElement('dt'); dt.textContent = k; const dd = document.createElement('dd'); dd.textContent = v; meta.append(dt, dd); }
   const tr = r.translation;
   $('translationNote').hidden = !tr;
-  $('translationNote').textContent = tr ? `Translated from ${tr.from_name} to ${tr.to_name} on your Mac (offline). Machine translation can be wrong — the original is below.` : '';
+  $('translationNote').textContent = tr ? `Translated from ${tr.from_name} to ${tr.to_name} on ${hostName() === 'This PC' ? 'this PC' : 'your Mac'} (offline). Machine translation can be wrong — the original is below.` : '';
   $('originalBlock').hidden = !tr;
   $('originalText').textContent = tr ? r.original_text : '';
   $('rawText').textContent = r.raw_text || '(empty)';
@@ -609,7 +636,7 @@ async function copyTranscript() {
     try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
   }
   showAlert(ok ? 'Transcript copied to the clipboard.'
-               : 'Could not copy automatically. The text is selected — press ⌘C to copy it.', ok ? 'info' : 'warn');
+               : 'Could not copy automatically. The text is selected — press ' + (ui.config.host_os === 'windows' ? 'Ctrl+C' : '⌘C') + ' to copy it.', ok ? 'info' : 'warn');
 }
 
 async function shareTranscript() {

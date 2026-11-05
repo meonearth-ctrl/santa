@@ -4,3 +4,7 @@ eval/synthetic/
 eval/human/*
 !eval/human/README.md
 !eval/human/manifest.example.json
+
+# Windows build work folder (payload, caches, installer) — see windows/build_windows.py
+windows/build/
+windows/build.log

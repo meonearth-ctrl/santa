@@ -1,0 +1,17 @@
+{
+ "segments": [
+  {"start": 0.0, "end": 4.204, "text": "  Good morning, I'm candidate number 3.  ", "speaker": "Speaker 1"},
+  {"start": 4.204, "end": 9.5, "text": "Café au lait, naïve résumé — and “quotes”.", "speaker": "Speaker 2"},
+  {"start": 9.5, "end": 9.9, "text": "   "},
+  {"start": 3599.995, "end": 3605.25, "text": "नमस्ते, मेरा नाम प्रिया है।", "speaker": "Speaker 1"},
+  {"start": 7199.0, "end": 7201.126, "text": "Thank you.\nNext question?"}
+ ],
+ "model": "large-v3-turbo",
+ "detected_language": "en",
+ "engine": "faster-whisper · CPU",
+ "audio_seconds": 7201.13,
+ "speakers": [
+  {"name": "Speaker 1", "known": false, "seconds": 9.46},
+  {"name": "Speaker 2", "known": false, "seconds": 5.3}
+ ]
+}

@@ -6,8 +6,10 @@
 #
 # Hardware note: faster-whisper runs on CTranslate2, which has no Metal backend.
 # On Apple Silicon it therefore uses the CPU (int8 by default), which is fast on
-# M-series chips. Only multilingual models are listed: English-only (.en) and
-# distil-*.en models cannot transcribe Hindi, Arabic or Bengali.
+# M-series chips. On Windows/Linux an NVIDIA GPU is used when the GPU pack is
+# installed (see cuda.py); if loading on the GPU fails, the CPU takes over.
+# Only multilingual models are listed: English-only (.en) and distil-*.en models
+# cannot transcribe Hindi, Arabic or Bengali.
 
 import os
 import threading
@@ -63,9 +65,33 @@ class TranscriptionCancelled(Exception):
 
 
 def total_ram_gb() -> float:
+    """Physical memory in GB, or 0.0 when it can't be read (= unknown)."""
+    if os.name == 'nt':
+        return _windows_ram_gb()
     try:
         return os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES') / 1024 ** 3
     except (ValueError, OSError, AttributeError):
+        return 0.0
+
+
+def _windows_ram_gb() -> float:
+    # os.sysconf doesn't exist on Windows; GlobalMemoryStatusEx is the documented way.
+    try:
+        import ctypes
+
+        class MEMORYSTATUSEX(ctypes.Structure):
+            _fields_ = [('dwLength', ctypes.c_ulong), ('dwMemoryLoad', ctypes.c_ulong),
+                        ('ullTotalPhys', ctypes.c_ulonglong), ('ullAvailPhys', ctypes.c_ulonglong),
+                        ('ullTotalPageFile', ctypes.c_ulonglong), ('ullAvailPageFile', ctypes.c_ulonglong),
+                        ('ullTotalVirtual', ctypes.c_ulonglong), ('ullAvailVirtual', ctypes.c_ulonglong),
+                        ('ullAvailExtendedVirtual', ctypes.c_ulonglong)]
+
+        status = MEMORYSTATUSEX()
+        status.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
+        if not ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+            return 0.0
+        return status.ullTotalPhys / 1024 ** 3
+    except Exception:
         return 0.0
 
 
@@ -133,9 +159,11 @@ def catalog_for_ui() -> list:
 class ModelManager:
     """Owns the single loaded model. Thread-safe; loads in the background."""
 
-    def __init__(self, compute_type: str = 'int8', cpu_threads: int = 0):
+    def __init__(self, compute_type: str = 'int8', cpu_threads: int = 0, allow_gpu: bool = True):
         self.compute_type = compute_type
         self.cpu_threads = cpu_threads
+        self.allow_gpu = allow_gpu      # Settings › Engine: 'auto' allows an NVIDIA GPU
+        self.device = 'cpu'             # where the loaded model actually runs
         self._lock = threading.Lock()
         self._model = None
         self._model_key = None
@@ -153,22 +181,29 @@ class ModelManager:
     def loaded_key(self) -> Optional[str]:
         return self._model_key if self._model is not None else None
 
-    def ensure_loading(self, key: str, compute_type: str = None, cpu_threads: int = None) -> None:
+    def engine_label(self) -> str:
+        """Shown in results and the exported .json "engine" field."""
+        return 'faster-whisper · NVIDIA GPU' if self.device == 'cuda' else 'faster-whisper · CPU'
+
+    def ensure_loading(self, key: str, compute_type: str = None, cpu_threads: int = None,
+                       allow_gpu: bool = None) -> None:
         """Start loading `key` unless it is already loaded or loading."""
         compute_type = compute_type or self.compute_type
         cpu_threads = self.cpu_threads if cpu_threads is None else cpu_threads
+        allow_gpu = self.allow_gpu if allow_gpu is None else allow_gpu
         with self._lock:
-            same_config = (compute_type == self.compute_type and cpu_threads == self.cpu_threads)
+            same_config = (compute_type == self.compute_type and cpu_threads == self.cpu_threads
+                           and allow_gpu == self.allow_gpu)
             if self._model is not None and self._model_key == key and same_config:
                 return
             if self._thread and self._thread.is_alive():
                 # Never load two models at once (memory). Remember the newest
                 # request; the loader thread picks it up when it finishes.
                 if self.status.get('model') != key:
-                    self._pending = (key, compute_type, cpu_threads)
+                    self._pending = (key, compute_type, cpu_threads, allow_gpu)
                 return
             self._pending = None
-            self.compute_type, self.cpu_threads = compute_type, cpu_threads
+            self.compute_type, self.cpu_threads, self.allow_gpu = compute_type, cpu_threads, allow_gpu
             self._ready.clear()
             self.status = {'state': 'checking', 'model': key, 'message': 'Checking model cache…',
                            'progress': None, 'load_seconds': None}
@@ -226,11 +261,8 @@ class ModelManager:
             if path is None:
                 path = self._download(info)
             self._set(state='loading', message=f'Loading {info.label} into memory…', progress=None)
-            from faster_whisper import WhisperModel
             threads = effective_cpu_threads(self.cpu_threads)
-            model = WhisperModel(path, device='cpu', compute_type=self.compute_type,
-                                 cpu_threads=threads)
-            self._warmup(model)
+            model, device, compute = self._load_on_best_device(path, threads)
         except MemoryError:
             self._set(state='error', message=f'Not enough memory to load {info.label}. '
                                              'Close other apps or choose a smaller model.')
@@ -241,11 +273,12 @@ class ModelManager:
         except Exception as exc:  # corrupted cache, disk full, etc.
             self._set(state='error', message=f'Could not load {info.label}: {type(exc).__name__}: {exc}')
             return
+        where = 'NVIDIA GPU' if device == 'cuda' else f'CPU, {threads} threads'
         with self._lock:
             old = self._model
-            self._model, self._model_key = model, key
-            self.status = {'state': 'ready', 'model': key, 'progress': None,
-                           'message': f'{info.label} ready (CPU, {self.compute_type}, {threads} threads).',
+            self._model, self._model_key, self.device = model, key, device
+            self.status = {'state': 'ready', 'model': key, 'progress': None, 'device': device,
+                           'message': f'{info.label} ready ({where}, {compute}).',
                            'load_seconds': round(time.time() - started, 2)}
         del old
         self._ready.set()
@@ -275,6 +308,26 @@ class ModelManager:
                 f"(needed once per model). Details: {type(exc).__name__}") from exc
         finally:
             done.set()
+
+    def _load_on_best_device(self, path: str, threads: int):
+        """NVIDIA GPU when allowed and usable, else CPU. A GPU failure (old card,
+        out of video memory, driver mismatch) falls back to the CPU instead of failing."""
+        from faster_whisper import WhisperModel
+        if self.allow_gpu:
+            from . import cuda
+            if cuda.cuda_status()['usable']:
+                compute = cuda.gpu_compute_type(self.compute_type)
+                try:
+                    model = WhisperModel(path, device='cuda', compute_type=compute)
+                    self._warmup(model)
+                    return model, 'cuda', compute
+                except Exception as exc:
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        'GPU load failed (%s: %s); using the CPU', type(exc).__name__, exc)
+        model = WhisperModel(path, device='cpu', compute_type=self.compute_type, cpu_threads=threads)
+        self._warmup(model)
+        return model, 'cpu', self.compute_type
 
     @staticmethod
     def _warmup(model) -> None:

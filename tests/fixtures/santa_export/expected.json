@@ -1,0 +1,44 @@
+{
+ "source": "2026-11-30_KOL_G1.mp4",
+ "model": "large-v3-turbo",
+ "language": "en",
+ "engine": "faster-whisper · CPU",
+ "audio_seconds": 7201.13,
+ "segments": [
+  {
+   "start": 0.0,
+   "end": 4.2,
+   "text": "Good morning, I'm candidate number 3.",
+   "speaker": "Speaker 1"
+  },
+  {
+   "start": 4.2,
+   "end": 9.5,
+   "text": "Café au lait, naïve résumé — and “quotes”.",
+   "speaker": "Speaker 2"
+  },
+  {
+   "start": 3599.99,
+   "end": 3605.25,
+   "text": "नमस्ते, मेरा नाम प्रिया है।",
+   "speaker": "Speaker 1"
+  },
+  {
+   "start": 7199.0,
+   "end": 7201.13,
+   "text": "Thank you.\nNext question?"
+  }
+ ],
+ "speakers": [
+  {
+   "label": "Speaker 1",
+   "known_voice": false,
+   "talk_seconds": 9.46
+  },
+  {
+   "label": "Speaker 2",
+   "known_voice": false,
+   "talk_seconds": 5.3
+  }
+ ]
+}

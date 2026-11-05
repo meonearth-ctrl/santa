@@ -23,6 +23,7 @@ import re
 
 from . import audio_input, textproc, accel_cpp, export, links, speakers, translate
 from .history import HistoryStore
+from .keep_awake import keep_awake
 from .languages import (LANGUAGE_MODES, WHISPER_LANGUAGE_NAMES, resolve_decode_params,
                         UnknownLanguageMode)
 from .models import ModelManager, ModelUnavailable, TranscriptionCancelled, run_transcription
@@ -76,7 +77,8 @@ class TranscriptionService:
                  history: HistoryStore = None, transcribe_fn=None, accelerator=None):
         self.settings = settings or SettingsStore()
         s = self.settings.get()
-        self.models = model_manager or ModelManager(s['compute_type'], s['cpu_threads'])
+        self.models = model_manager or ModelManager(s['compute_type'], s['cpu_threads'],
+                                                    allow_gpu=s['engine'] == 'auto')
         # Optional Metal fast path for short clips (None in tests / other platforms).
         self.accel = accelerator
         self.history = history or HistoryStore(self.settings.home)
@@ -93,7 +95,8 @@ class TranscriptionService:
     # ── Public API ───────────────────────────────────────────────────────
     def preload(self) -> None:
         s = self.settings.get()
-        self.models.ensure_loading(s['model'], s['compute_type'], s['cpu_threads'])
+        self.models.ensure_loading(s['model'], s['compute_type'], s['cpu_threads'],
+                                   allow_gpu=s['engine'] == 'auto')
         if self._accel_wanted(s):
             self.accel.ensure_loading()
 
@@ -203,7 +206,8 @@ class TranscriptionService:
             if job is None or job.state == 'cancelled':
                 continue
             try:
-                self._run(job)
+                with keep_awake():           # Windows: no sleep in the middle of a long interview
+                    self._run(job)
             except TranscriptionCancelled:
                 self._finish(job, 'cancelled')
             except (audio_input.AudioInputError, ModelUnavailable) as exc:
@@ -261,7 +265,8 @@ class TranscriptionService:
             raw = self._transcribe_fn(model, decoded.samples, params, beam_size=s['beam_size'],
                                       vad_filter=s['vad_filter'], cancel_event=job.cancel_event,
                                       on_progress=progress)
-            raw.setdefault('engine', 'faster-whisper · CPU')
+            label = getattr(self.models, 'engine_label', None)
+            raw.setdefault('engine', label() if label else 'faster-whisper · CPU')
         model_key = s['model']
         result = self._build_result(job, raw, decoded.duration_s, model_key, params, s)
         if opts['diarize'] and result['segments']:
@@ -344,7 +349,7 @@ class TranscriptionService:
         result['translation'] = {'from': source, 'to': target,
                                  'from_name': translate.LANGUAGE_NAMES.get(source, source),
                                  'to_name': translate.LANGUAGE_NAMES[target],
-                                 'engine': 'Argos Translate models (offline, on this Mac)'}
+                                 'engine': 'Argos Translate models (offline, on this computer)'}
         result['rtl'] = textproc.is_rtl_dominant(translated)
 
     def _translate_turn(self, paragraph: str, source, target, job) -> str:

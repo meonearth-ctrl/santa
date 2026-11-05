@@ -1,0 +1,114 @@
+# .github/workflows/santa-windows.yml
+# Santa for Windows on a real Windows machine (GitHub's windows-latest runner):
+#   tests   the Santa unit tests, including export byte-parity with the Mac
+#   install builds Santa-Setup.exe with build_windows.py, installs it silently
+#           (no admin rights), drops a spoken sample into the Hiring Right watch
+#           folder as .wav and .mp4, checks the exported .json/.srt, then uninstalls.
+# Run by hand (Actions > Santa for Windows > Run workflow) or on changes to Santa.
+
+name: Santa for Windows
+
+on:
+  workflow_dispatch:
+  push:
+    paths: ['src/whisper_key/santa/**', 'santa-app/windows/**', 'tests/test_santa*.py',
+            'tests/fixtures/santa_export/**', '.github/workflows/santa-windows.yml']
+
+jobs:
+  tests:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r santa-app/windows/requirements-windows.txt pytest
+      - run: python -m pytest -q tests/test_santa_windows.py tests/test_santa.py
+        env:
+          PYTHONPATH: src
+
+  install:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Build the installer
+        shell: pwsh
+        run: |
+          pip install pillow
+          $env:PATH = "C:\Program Files (x86)\NSIS;$env:PATH"
+          python santa-app/windows/build_windows.py --out "$env:RUNNER_TEMP\out" --skip-zip
+      - name: Install silently (per user, no admin)
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem "$env:RUNNER_TEMP\out\Santa-Setup-*.exe" | Select-Object -First 1
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $app = "$env:LOCALAPPDATA\Programs\Santa"
+          foreach ($f in "python\pythonw.exe", "Uninstall Santa.exe", "santa.ico") {
+            if (-not (Test-Path "$app\$f")) { throw "missing $f" }
+          }
+          if (-not (Test-Path ([Environment]::GetFolderPath('Programs') + '\Santa.lnk'))) { throw 'no Start-menu shortcut' }
+          if (-not (Test-Path ([Environment]::GetFolderPath('Startup') + '\Santa.lnk'))) { throw 'no sign-in shortcut' }
+          Get-Content "$env:APPDATA\Santa\settings.json"
+      - name: Make spoken test files (.wav and .mp4)
+        shell: pwsh
+        run: |
+          choco install ffmpeg -y --no-progress | Out-Null
+          Add-Type -AssemblyName System.Speech
+          $tts = New-Object System.Speech.Synthesis.SpeechSynthesizer
+          $tts.SetOutputToWaveFile("$env:RUNNER_TEMP\G1.wav")
+          $tts.Speak('Good morning. I am candidate number three, and I worked in a restaurant for two years.')
+          $tts.Dispose()
+          ffmpeg -loglevel error -f lavfi -i color=c=black:s=320x240:r=10 -i "$env:RUNNER_TEMP\G1.wav" -shortest -c:v libx264 -c:a aac "$env:RUNNER_TEMP\G2.mp4"
+      - name: Transcribe through the watch folder
+        shell: pwsh
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\Santa"
+          $docs = [Environment]::GetFolderPath('MyDocuments')
+          $videos = "$docs\Hiring Right\02_Batch_Videos"
+          $out = "$docs\Hiring Right\03_Transcripts"
+          $server = Start-Process "$app\python\python.exe" -ArgumentList '-m','whisper_key.santa.cli','--no-browser','--no-tray' -PassThru `
+                      -RedirectStandardOutput "$env:RUNNER_TEMP\santa.out" -RedirectStandardError "$env:RUNNER_TEMP\santa.err"
+          Copy-Item "$env:RUNNER_TEMP\G1.wav", "$env:RUNNER_TEMP\G2.mp4" $videos
+          $deadline = (Get-Date).AddMinutes(20)
+          while (-not ((Test-Path "$out\G1.json") -and (Test-Path "$out\G2.json"))) {
+            if ((Get-Date) -gt $deadline) { Get-Content "$env:RUNNER_TEMP\santa.out", "$env:RUNNER_TEMP\santa.err"; throw 'no transcript after 20 minutes' }
+            if (Get-ChildItem "$out\*.error.txt" -ErrorAction SilentlyContinue) { Get-Content "$out\*.error.txt"; throw 'Santa reported an error' }
+            Start-Sleep 10
+          }
+          foreach ($name in 'G1', 'G2') {
+            $raw = [IO.File]::ReadAllBytes("$out\$name.json")
+            if ([Array]::IndexOf($raw, [byte]13) -ge 0) { throw "$name.json has CRLF line endings" }
+            $t = Get-Content "$out\$name.json" -Raw -Encoding utf8 | ConvertFrom-Json
+            $text = ($t.segments | ForEach-Object { $_.text }) -join ' '
+            Write-Host "$name [$($t.engine), $($t.audio_seconds)s]: $text"
+            if ($t.language -ne 'en') { throw "$name language $($t.language)" }
+            if ($text -notmatch 'candidate') { throw "$name transcript looks wrong" }
+            if (-not (Test-Path "$out\$name.srt")) { throw "$name.srt missing" }
+          }
+          Invoke-WebRequest -Method Post -Uri http://127.0.0.1:8765/api/shutdown -Headers @{ 'X-Santa' = '1' } -ContentType 'application/json' -Body '{}' | Out-Null
+          $server.WaitForExit(15000) | Out-Null
+      - name: Uninstall silently
+        shell: pwsh
+        run: |
+          $app = "$env:LOCALAPPDATA\Programs\Santa"
+          Start-Process "$app\Uninstall Santa.exe" -ArgumentList '/S' -Wait
+          Start-Sleep 5          # the uninstaller finishes from a temp copy
+          if (Test-Path "$app\python") { throw 'program files left behind' }
+          $docs = [Environment]::GetFolderPath('MyDocuments')
+          if (-not (Test-Path "$docs\Hiring Right\03_Transcripts\G1.json")) { throw 'uninstall touched the transcripts' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: santa-windows-logs
+          path: |
+            ${{ runner.temp }}/santa.*
+            ~/AppData/Roaming/Santa/logs

@@ -1,0 +1,20 @@
+# santa-app/windows/requirements-windows.txt
+# What Santa needs at run time on Windows (x64, Python 3.12), bundled into the
+# installer by build_windows.py. Versions match santa-app/constraints-mac.txt,
+# the set tested on the Mac, so both platforms run the same speech stack.
+# Left out on purpose: Metal/whisper.cpp (Mac only), iPhone access, link
+# downloads, translation and the hotkey dictation app (out of scope on Windows).
+faster-whisper==1.2.1
+ctranslate2==4.7.1
+av==18.1.0                # PyAV 19 breaks faster-whisper 1.2.1's audio decoding
+numpy==2.5.3
+onnxruntime==1.30.0       # Silero VAD inside faster-whisper
+tokenizers==0.23.2
+huggingface-hub==1.33.0
+hf-xet==1.6.0
+tqdm==4.70.1
+certifi==2026.7.22
+sherpa-onnx==1.13.8       # speaker labels ("speaker" per segment), as on the Mac
+pystray==0.19.5           # tray icon
+pillow==12.3.0
+pip                       # used by `santa --setup gpu` to add the NVIDIA GPU pack

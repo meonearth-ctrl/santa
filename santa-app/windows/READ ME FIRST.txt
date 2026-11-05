@@ -1,0 +1,17 @@
+Santa for Windows - offline transcription for Hiring Right interviews
+
+1. Unzip this whole folder (right-click > Extract All).
+2. Double-click "Install Santa.bat". If Windows says "Windows protected your PC",
+   click "More info" > "Run anyway". No administrator rights are needed.
+3. Keep the internet on during installation: the speech model (0.5-1.6 GB) is
+   downloaded once. After that Santa works offline.
+
+Santa then runs in the taskbar tray and watches
+   Documents\Hiring Right\02_Batch_Videos
+Copy an interview video there; the transcript (.json + .srt) appears in
+   Documents\Hiring Right\03_Transcripts
+Upload that .json into the Hiring Right Kout app.
+
+To remove Santa: double-click "Uninstall Santa.bat" (or use the Santa-Setup .exe
+installer's entry in Settings > Apps if you installed it that way).
+Full guide: "Santa for Windows - Interviewer Guide" next to this download.

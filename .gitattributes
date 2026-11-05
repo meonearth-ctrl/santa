@@ -1,0 +1,5 @@
+# Windows batch files must keep CRLF line endings (cmd.exe misreads LF-only files)
+santa-app/windows/*.bat text eol=crlf
+santa-app/windows/*.txt text eol=crlf
+# Golden export files are compared byte for byte: never convert their line endings
+tests/fixtures/santa_export/* -text

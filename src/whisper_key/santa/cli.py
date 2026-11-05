@@ -2,6 +2,8 @@
 # `santa` command: start the local server (127.0.0.1 only), preload the model in
 # the background, and open the UI in the default browser. If Santa is already
 # running on the port, just open the browser instead of starting a second copy.
+# On Windows it also shows a tray icon (Santa runs there without a console).
+# `santa --setup hiring-right|model|gpu|stop` runs one installer step and exits.
 
 import argparse
 import ipaddress
@@ -10,6 +12,7 @@ import logging
 import logging.handlers
 import os
 import sys
+import threading
 import urllib.request
 import webbrowser
 
@@ -29,10 +32,11 @@ def _setup_logging(home: str, verbose: bool) -> str:
     root = logging.getLogger()
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
     root.addHandler(handler)
-    console = logging.StreamHandler(sys.stdout)
-    console.setLevel(logging.INFO)
-    console.setFormatter(logging.Formatter('%(message)s'))
-    root.addHandler(console)
+    if sys.stdout is not None:          # None under pythonw.exe (no console on Windows)
+        console = logging.StreamHandler(sys.stdout)
+        console.setLevel(logging.INFO)
+        console.setFormatter(logging.Formatter('%(message)s'))
+        root.addHandler(console)
     # Third-party libraries can be chatty (and faster_whisper logs nothing sensitive
     # at WARNING); keep them quiet.
     for noisy in ('faster_whisper', 'huggingface_hub', 'urllib3', 'httpx'):
@@ -57,7 +61,19 @@ def _already_running(host: str, port: int) -> bool:
         return False
 
 
+def _safe_console() -> None:
+    # A Windows console redirected to a file uses the ANSI code page, which can't
+    # encode the 🎅 or "·" Santa prints; replace such characters instead of crashing.
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, 'reconfigure'):
+            try:
+                stream.reconfigure(errors='replace')
+            except (ValueError, OSError):
+                pass
+
+
 def main(argv=None) -> int:
+    _safe_console()
     parser = argparse.ArgumentParser(prog='santa', description='Santa — local multilingual dictation')
     parser.add_argument('--host', default=DEFAULT_HOST)
     parser.add_argument('--port', type=int, default=DEFAULT_PORT)
@@ -65,11 +81,21 @@ def main(argv=None) -> int:
     parser.add_argument('--model', help='use this model (saved to settings)')
     parser.add_argument('--verbose', action='store_true')
     parser.add_argument('--version', action='store_true')
+    parser.add_argument('--setup', choices=['hiring-right', 'model', 'gpu', 'stop'],
+                        help='run one set-up step (used by the installers) and exit')
+    parser.add_argument('--tray', action=argparse.BooleanOptionalAction, default=sys.platform == 'win32',
+                        help='show a tray icon (default on Windows)')
     args = parser.parse_args(argv)
 
     if args.version:
         print(f'{APP_NAME} {__version__}')
         return 0
+    if sys.platform == 'win32':
+        from .cuda import register_library_dirs
+        register_library_dirs()             # GPU pack DLLs, before CTranslate2 loads
+    if args.setup:
+        from .setup_tasks import run
+        return run(args.setup, args.model)
     if not _is_loopback(args.host):
         print('The Santa window only listens on this computer (127.0.0.1). For your phone, '
               'switch on Settings › iPhone access (HTTPS + pairing) instead.')
@@ -103,11 +129,17 @@ def main(argv=None) -> int:
     from .watch import WatchFolder
     service.watcher = WatchFolder(service)      # idle unless enabled in Settings
     service.watcher.start()
-    from .phone_access import PhoneAccess
-    service.phone = PhoneAccess(service, home)  # iPhone access: off unless enabled in Settings
-    service.phone.apply_settings(settings.get())
-    if service.phone.running:
-        print(f'    iPhone access is on: {service.phone.url()}')
+    service.phone = None
+    if sys.platform == 'darwin':                # iPhone access is a Mac feature (Bonjour, caffeinate)
+        from .phone_access import PhoneAccess
+        service.phone = PhoneAccess(service, home)  # off unless enabled in Settings
+        service.phone.apply_settings(settings.get())
+        if service.phone.running:
+            print(f'    iPhone access is on: {service.phone.url()}')
+    if args.tray:
+        from .tray import start_tray
+        # shutdown() blocks until serve_forever returns, so call it off the tray thread.
+        start_tray(url, settings, lambda: threading.Thread(target=httpd.shutdown, daemon=True).start())
     print(f'\n🎅  {APP_NAME} is running at {url}\n    Close this window or use "Quit Santa" in the app to stop.\n')
     if not args.no_browser:
         webbrowser.open(url)
@@ -116,7 +148,8 @@ def main(argv=None) -> int:
     except KeyboardInterrupt:
         pass
     finally:
-        service.phone.stop()
+        if service.phone is not None:
+            service.phone.stop()
         httpd.server_close()
     print(f'{APP_NAME} stopped.')
     # Exit without running native destructors: onnxruntime/ctranslate2 worker

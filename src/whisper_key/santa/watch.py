@@ -5,9 +5,15 @@
 # that is still being copied is left alone) and only if no up-to-date
 # <name>.json transcript exists yet. Source files are never moved or deleted —
 # Hiring Right removes videos itself once rating is finished.
+#
+# Windows: Explorer sets a copied file to its full size up front and fixes the
+# date at the end, so size/date can look "settled" while the copy is still
+# running. There we also wait until no other program holds the file open for
+# writing.
 
 import logging
 import os
+import sys
 import threading
 import time
 
@@ -18,6 +24,22 @@ logger = logging.getLogger(__name__)
 
 POLL_SECONDS = 5.0
 SETTLE_SECONDS = 5.0      # file must be unchanged for this long before we start
+
+
+def still_being_written(path: str, platform: str = None) -> bool:
+    """Windows only: True while another program (Explorer, a camera app, a sync
+    client) has the file open for writing. Opening it read+write is refused with
+    a sharing violation in that case. Read-only files can't be tested this way
+    and count as finished."""
+    if (platform or sys.platform) != 'win32' or not os.access(path, os.W_OK):
+        return False
+    try:
+        with open(path, 'r+b'):
+            return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
 
 
 class WatchFolder:
@@ -77,6 +99,9 @@ class WatchFolder:
                 self._seen[path] = (st.st_size, st.st_mtime, now)   # new or still changing
                 continue
             if now - prev[2] < self.settle_seconds or now - st.st_mtime < self.settle_seconds:
+                continue
+            if still_being_written(path):
+                self._seen[path] = (st.st_size, st.st_mtime, now)   # restart the settle clock
                 continue
             try:
                 job = self.service.submit_file(path, name, s['watch_language'], source='watch',

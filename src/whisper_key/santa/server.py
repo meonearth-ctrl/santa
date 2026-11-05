@@ -65,6 +65,16 @@ def _web_file(name: str) -> bytes:
     return resources.files('whisper_key.santa').joinpath('web', name).read_bytes()
 
 
+def host_os() -> str:
+    """'mac', 'windows' or 'linux': which computer is serving the page."""
+    return {'darwin': 'mac', 'win32': 'windows'}.get(sys.platform, 'linux')
+
+
+def _cuda_status() -> dict:
+    from .cuda import cuda_status
+    return cuda_status()
+
+
 class SantaServer(ThreadingHTTPServer):
     daemon_threads = True
 
@@ -564,6 +574,9 @@ class SantaHandler(BaseHTTPRequestHandler):
             'accelerator_available': bool(svc.accel and svc.accel.available()),
             'speakers_available': svc.speakers.available(),
             'phone_available': getattr(svc, 'phone', None) is not None,
+            # Lets the page say "this PC" / "Ctrl" on Windows and show the NVIDIA option.
+            'host_os': host_os(),
+            'gpu': None if sys.platform == 'darwin' or self.is_phone else _cuda_status(),
         }
 
     # ── I/O helpers ──────────────────────────────────────────────────────

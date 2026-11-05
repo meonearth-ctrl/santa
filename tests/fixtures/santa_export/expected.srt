@@ -1,0 +1,16 @@
+1
+00:00:00,000 --> 00:00:04,200
+[Speaker 1] Good morning, I'm candidate number 3.
+
+2
+00:00:04,200 --> 00:00:09,500
+[Speaker 2] Café au lait, naïve résumé — and “quotes”.
+
+3
+00:59:59,990 --> 01:00:05,250
+[Speaker 1] नमस्ते, मेरा नाम प्रिया है।
+
+4
+01:59:59,000 --> 02:00:01,130
+Thank you.
+Next question?
